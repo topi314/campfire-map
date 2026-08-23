@@ -1,0 +1,7 @@
+services:
+  campfire-export:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.toml:/var/lib/config.toml

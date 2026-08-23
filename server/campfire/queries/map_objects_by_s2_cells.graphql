@@ -1,0 +1,65 @@
+query PgoGameMapObjectsByS2CellsProvider_mapObjectsByS2Cells_Query(
+  $realityChannelMapObjectsByS2CellsInput: RealityChannelMapObjectsByS2CellsInput!
+) {
+  realityChannelMapObjectsByS2Cells(input: $realityChannelMapObjectsByS2CellsInput) {
+    mapObjectsByS2CellsAndTypes {
+      s2CellId
+      mapObjectsByType {
+        type
+        mapObjects {
+          mapObjectType
+          pgoGym {
+            name
+            imageUrl
+            isMegaEnhancedEligible
+            location {
+              latitude
+              longitude
+            }
+          }
+          pgoPowerspot {
+            name
+            location {
+              latitude
+              longitude
+            }
+          }
+          pgoRoute {
+            id
+            name
+            distanceMeters
+            durationSeconds
+            reversible
+            startPoi {
+              fortId
+              imageUrl
+              location {
+                latitude
+                longitude
+              }
+            }
+            endPoi {
+              fortId
+              location {
+                latitude
+                longitude
+              }
+            }
+            locationList {
+              latitude
+              longitude
+            }
+          }
+          pgoPokestop {
+            name
+            imageUrl
+            location {
+              latitude
+              longitude
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+.git
+.idea
+.vscode
+*.md
+.env
+*.exe
+config.toml
+campfire-export
+coverage.out
+
+frontend/node_modules
+frontend/.nuxt
+frontend/.output
+frontend/.data
+frontend/dist
