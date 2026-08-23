@@ -33,6 +33,25 @@
               : "No session token — browsing without auth. Add one to load Powerspots."
           }}
         </p>
+
+        <details class="token-howto">
+          <summary>How to get a token</summary>
+          <ol class="tutorial-list token-howto-list">
+            <li>
+              Open
+              <a href="https://campfire.nianticlabs.com/" target="_blank" rel="noreferrer">campfire.nianticlabs.com</a>
+              and sign in.
+            </li>
+            <li>Press <kbd>F12</kbd> (or right‑click → Inspect) and open the <strong>Network</strong> tab.</li>
+            <li>Filter by <kbd>graphql</kbd>, then pan the Campfire map so a few requests appear.</li>
+            <li>
+              Click a request → <strong>Headers</strong> → find <strong>Authorization</strong>
+              (<code>Bearer eyJ…</code>).
+            </li>
+            <li>Copy that value and paste it below (with or without the <code>Bearer</code> prefix).</li>
+          </ol>
+        </details>
+
         <label class="token-label" for="session-token">Session token</label>
         <textarea
           id="session-token"
