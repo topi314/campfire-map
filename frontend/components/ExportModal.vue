@@ -148,7 +148,15 @@ const myMapsWarning = computed(() => {
     byType[t] = (byType[t] || 0) + 1;
   }
   let folders = 0;
-  for (const n of Object.values(byType)) folders += Math.ceil(n / 2000);
+  for (const [t, n] of Object.entries(byType)) {
+    const chunks = Math.ceil(n / 2000);
+    // Routes with paths split into start / path / end layers (Uniform style each).
+    if (t === "route" && draft.value.includeRoutePaths) {
+      folders += chunks * 3;
+    } else {
+      folders += chunks;
+    }
+  }
   if (folders > 10) {
     return `My Maps allows 10 layers; this export would create ${folders} folders. Split the selection.`;
   }

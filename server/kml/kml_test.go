@@ -42,13 +42,16 @@ func TestBuildKMZ(t *testing.T) {
 		t.Fatalf("missing kmz entries: %v", files)
 	}
 	for _, needle := range []string{
-		"Gyms", "Super Mega Gyms", "Routes", "Gym One", "Mega Gate", "Loop",
+		"Gyms", "Super Mega Gyms", "Routes", "Route paths", "Route ends",
+		"Gym One", "Mega Gate", "Loop",
 		"<LineString>", "<Point>", "#super_mega_gym", "<StyleMap", "files/gym.png", "route-line",
 	} {
 		if !strings.Contains(kml, needle) {
 			t.Errorf("kml missing %q", needle)
 		}
 	}
+	// Each folder must use a single styleUrl (Uniform style in My Maps).
+	assertUniformFolders(t, kml)
 	// Shared styles should reference embedded icons, not remote URLs.
 	if strings.Contains(kml, "https://example.com") {
 		t.Error("kml should not embed remote POI photo URLs in styles")
@@ -71,6 +74,35 @@ func TestBuildKML(t *testing.T) {
 	}
 	if !strings.Contains(s, "Gym One") || !strings.Contains(s, "<StyleMap") {
 		t.Fatalf("unexpected kml:\n%s", s[:min(400, len(s))])
+	}
+}
+
+func assertUniformFolders(t *testing.T, kml string) {
+	t.Helper()
+	// Rough check: within each Folder block, every styleUrl should match.
+	parts := strings.Split(kml, "<Folder>")
+	for _, part := range parts[1:] {
+		end := strings.Index(part, "</Folder>")
+		if end < 0 {
+			continue
+		}
+		body := part[:end]
+		var style string
+		for _, line := range strings.Split(body, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "<styleUrl>") {
+				continue
+			}
+			u := strings.TrimSuffix(strings.TrimPrefix(line, "<styleUrl>"), "</styleUrl>")
+			if style == "" {
+				style = u
+				continue
+			}
+			if u != style {
+				t.Errorf("folder mixes styles %q and %q (not uniform):\n%s", style, u, body)
+				return
+			}
+		}
 	}
 }
 
