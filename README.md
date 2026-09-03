@@ -34,6 +34,17 @@ npm run dev
 
 Open http://localhost:3000. In dev, `/api` is proxied to the Go server on `:8080`.
 
+### CARTO basemap key
+
+CARTO raster basemaps (Voyager, Positron, Dark matter) show an “API key required” watermark without a key. Request a free one at [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey) and put it in `config.toml`:
+
+```toml
+[basemaps]
+carto_api_key = "your_carto_key"
+```
+
+The browser reads it from `GET /api/config` and appends it to CARTO tile URLs. Other basemaps ignore it.
+
 ### Embed the SPA into Go (optional local prod-like)
 
 ```bash
@@ -70,6 +81,7 @@ My Maps allows 10 layers and 2000 features per layer. The export uses one folder
 ## API
 
 - `GET /api/health`
+- `GET /api/config` → `{ "cartoApiKey": "…" }` (basemap key for the browser, from `[basemaps]`)
 - `GET /api/pois?bbox=minLat,minLng,maxLat,maxLng&types=gym,super_mega_gym,pokestop,powerspot,route`
 - `POST /api/export` `{ "name": "…", "format": "kmz"|"kml", "pois": [ … ] }` → KMZ or KML download
 

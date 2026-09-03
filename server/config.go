@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -62,15 +63,17 @@ type Config struct {
 	Campfire campfire.Config `toml:"campfire"`
 	Cache    CacheConfig     `toml:"cache"`
 	Limits   LimitsConfig    `toml:"limits"`
+	Basemaps BasemapsConfig  `toml:"basemaps"`
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("Log: %s\nServer: %s\nCampfire: %s\nCache: %s\nLimits: %s",
+	return fmt.Sprintf("Log: %s\nServer: %s\nCampfire: %s\nCache: %s\nLimits: %s\nBasemaps: %s",
 		c.Log,
 		c.Server,
 		c.Campfire,
 		c.Cache,
 		c.Limits,
+		c.Basemaps,
 	)
 }
 
@@ -127,4 +130,21 @@ func (c LimitsConfig) String() string {
 		c.MaxBBoxSpan,
 		c.MaxExportPOIs,
 	)
+}
+
+type BasemapsConfig struct {
+	CartoAPIKey string `toml:"carto_api_key"`
+}
+
+// CartoKey is served to the browser, which appends it to CARTO tile URLs.
+func (c BasemapsConfig) CartoKey() string {
+	return strings.TrimSpace(c.CartoAPIKey)
+}
+
+func (c BasemapsConfig) String() string {
+	set := "unset"
+	if c.CartoKey() != "" {
+		set = "set"
+	}
+	return fmt.Sprintf("\n CartoAPIKey: %s", set)
 }

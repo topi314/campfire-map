@@ -22,3 +22,7 @@ ttl = "24h"
 max_cells = 192
 max_bbox_span = 0.35
 max_export_pois = 8000
+
+[basemaps]
+# Free key from https://carto.com/basemaps/apikey — without it CARTO tiles are watermarked.
+carto_api_key = ""

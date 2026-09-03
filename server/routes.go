@@ -17,6 +17,10 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (s *Server) clientConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"cartoApiKey": s.cfg.Basemaps.CartoKey()})
+}
+
 func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 	bbox, err := parseBBox(r.URL.Query().Get("bbox"))
 	if err != nil {

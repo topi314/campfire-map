@@ -57,6 +57,7 @@ func (s *Server) Stop() {
 func (s *Server) Handler() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/config", s.clientConfig)
 	mux.HandleFunc("GET /api/pois", s.getPOIs)
 	mux.HandleFunc("GET /api/places", s.searchPlaces)
 	mux.HandleFunc("POST /api/export", s.exportKMZ)

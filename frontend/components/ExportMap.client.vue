@@ -50,7 +50,7 @@
 import { initialMapView, writeStoredMapView } from "~/composables/useMapView";
 import { readStoredUiSettings, writeStoredUiSettings } from "~/composables/useUiSettings";
 import { DEFAULT_MAP_ZOOM } from "~/constants/map";
-import { getBaseMap, HYBRID_BASE_LAYERS, isHybridBaseMap } from "~/constants/baseMaps";
+import { getBaseMap, HYBRID_BASE_LAYERS, isHybridBaseMap, withCartoApiKey } from "~/constants/baseMaps";
 import type { PlaceResult } from "~/composables/usePlaceSearch";
 import type {
   Map as LeafletMap,
@@ -79,6 +79,7 @@ import { attachExportGestures, attachLongPress, eventHasShift } from "~/utils/ex
 const config = useRuntimeConfig();
 const { token, settingsOpen, save, openSettings, closeSettings, clearToken, invalidateToken, authHeaders } =
   useSessionToken();
+const { apiKey: cartoApiKey } = useCartoApiKey();
 const { tutorialOpen, closeTutorial, maybeShowTutorial } = useTutorial();
 const mapEl = ref<HTMLElement | null>(null);
 const pois = ref<Poi[]>([]);
@@ -208,6 +209,7 @@ watch(selected, () => {
   refreshMarkerSelection();
 });
 watch(baseLayerId, (id) => applyBaseLayer(id));
+watch(cartoApiKey, () => applyBaseLayer(baseLayerId.value));
 watch(showCells, () => renderCells());
 watch(showAllRoutes, (on) => {
   if (!on && focusedRouteId.value) {
@@ -254,7 +256,7 @@ function applyBaseLayer(id: string) {
     return;
   }
   const def = getBaseMap(id);
-  baseTileLayer = L.tileLayer(def.url, {
+  baseTileLayer = L.tileLayer(withCartoApiKey(def.url, cartoApiKey.value), {
     attribution: def.attribution,
     maxZoom: def.maxZoom,
     subdomains: def.subdomains ?? "abc",

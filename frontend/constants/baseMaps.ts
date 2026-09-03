@@ -129,6 +129,18 @@ export function getBaseMap(id: string) {
   return BASE_MAPS.find((m) => m.id === DEFAULT_BASE_MAP_ID) ?? BASE_MAPS[0];
 }
 
+function isCartoTileUrl(url: string) {
+  return url.includes("basemaps.cartocdn.com");
+}
+
+/** Append CARTO’s required `key` query param on raster basemap URLs. */
+export function withCartoApiKey(url: string, apiKey: string) {
+  const key = apiKey.trim();
+  if (!key || !isCartoTileUrl(url)) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}key=${encodeURIComponent(key)}`;
+}
+
 export function isHybridBaseMap(id: string) {
   return id === "esri-hybrid";
 }
