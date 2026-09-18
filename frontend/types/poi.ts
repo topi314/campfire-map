@@ -103,10 +103,3 @@ export function poiLayerVisible(
   }
   return true;
 }
-
-export function powerspotDisplayName(p: Poi) {
-  if (isInactivePowerspot(p) && !/\(inactive\)$/i.test(p.name)) {
-    return `${p.name} (inactive)`;
-  }
-  return p.name;
-}

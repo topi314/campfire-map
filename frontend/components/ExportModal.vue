@@ -74,7 +74,6 @@
             :disabled="!draft.includeTypes.powerspot"
           />
           Include inactive powerspots
-          <span class="counts">(tagged in name)</span>
         </label>
       </div>
 

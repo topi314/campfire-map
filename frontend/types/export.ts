@@ -4,7 +4,6 @@ import {
   isGymPoi,
   isInactivePowerspot,
   isSuperMegaPoi,
-  powerspotDisplayName,
   type Poi,
   type PoiType,
 } from "~/types/poi";
@@ -62,10 +61,6 @@ export function filterPoisForExport(pois: Poi[], settings: ExportSettings): Poi[
     if (p.type === "route" && !settings.includeRoutePaths) {
       const { path: _path, ...rest } = p;
       out.push(rest);
-      continue;
-    }
-    if (p.type === "powerspot" && isInactivePowerspot(p)) {
-      out.push({ ...p, name: powerspotDisplayName(p) });
       continue;
     }
     out.push(p);
