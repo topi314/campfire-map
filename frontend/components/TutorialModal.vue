@@ -25,10 +25,7 @@
         <li>Use the layer toggles to show or hide POI types. Search and the <strong>In view</strong> list help you find places — click a row to jump there.</li>
         <li>
           <strong>Session token</strong> (Settings) is optional — only needed for Powerspots.
-          To get one: sign in at
-          <a href="https://campfire.nianticlabs.com/" target="_blank" rel="noreferrer">Campfire</a>,
-          open DevTools → <strong>Network</strong>, filter <kbd>graphql</kbd>, open a request, and copy the
-          <strong>Authorization</strong> header (<code>Bearer …</code>). Paste it in Settings.
+          See Settings → <strong>How to get a token</strong> for simple steps.
         </li>
         <li>
           <strong>Select for export:</strong> hold <kbd>Shift</kbd> and click a marker on the map, or <kbd>Shift</kbd>-click a row in <strong>In view</strong>.

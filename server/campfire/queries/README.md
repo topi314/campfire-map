@@ -22,3 +22,6 @@ Drop types: `PGO_GYM`, `PGO_POWERSPOT`, `PGO_POKESTOP`, `PGO_ROUTE`.
 ## Auth
 
 Browser session token → `Authorization: Bearer` (not in server config).
+
+On Campfire web, the value lives in Local Storage as `CapacitorStorage.sessionToken`.
+Copy it from DevTools → Application/Storage → Local Storage (Chrome, Firefox, or Safari).

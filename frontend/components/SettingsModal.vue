@@ -34,22 +34,39 @@
           }}
         </p>
 
-        <details class="token-howto">
+        <details class="token-howto" :open="!token">
           <summary>How to get a token</summary>
-          <ol class="tutorial-list token-howto-list">
-            <li>
-              Open
-              <a href="https://campfire.nianticlabs.com/" target="_blank" rel="noreferrer">campfire.nianticlabs.com</a>
-              and sign in.
-            </li>
-            <li>Press <kbd>F12</kbd> (or right‑click → Inspect) and open the <strong>Network</strong> tab.</li>
-            <li>Filter by <kbd>graphql</kbd>, then pan the Campfire map so a few requests appear.</li>
-            <li>
-              Click a request → <strong>Headers</strong> → find <strong>Authorization</strong>
-              (<code>Bearer eyJ…</code>).
-            </li>
-            <li>Copy that value and paste it below (with or without the <code>Bearer</code> prefix).</li>
-          </ol>
+          <div class="token-howto-body">
+            <ol class="tutorial-list token-howto-list">
+              <li>
+                Open
+                <a href="https://campfire.scopely.com/discover" target="_blank" rel="noreferrer">campfire.scopely.com/discover</a>
+                and sign in.
+              </li>
+              <li>
+                On that Campfire page, right‑click anywhere → choose <strong>Inspect</strong>
+                (Safari: turn on the Develop menu first under Safari → Settings → Advanced, then
+                Develop → Show Web Inspector).
+              </li>
+              <li>
+                In the panel that opens, click the tab named
+                <strong>Application</strong> (Chrome / Edge) or <strong>Storage</strong> (Firefox / Safari).
+              </li>
+              <li>
+                On the left, open <strong>Local Storage</strong>, then click
+                <code>https://campfire.scopely.com</code>.
+              </li>
+              <li>
+                In the list, find <code>CapacitorStorage.sessionToken</code>.
+                Double‑click its value and copy it.
+              </li>
+              <li>Paste it in the box below and click <strong>Save token</strong>.</li>
+            </ol>
+            <p class="token-howto-note">
+              If you don’t see that key, refresh the Campfire page while signed in and try again.
+              Tokens expire — grab a new one if Powerspots stop loading.
+            </p>
+          </div>
         </details>
 
         <label class="token-label" for="session-token">Session token</label>
