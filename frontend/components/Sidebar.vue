@@ -66,7 +66,16 @@
             <TypeIcon :type="t" />
             {{ TYPE_META[t].label }}
             <span class="counts">({{ counts[t] || 0 }})</span>
-            <span v-if="t === 'powerspot' && !token" class="counts layer-hint"> · needs token</span>
+            <span v-if="t === 'powerspot' && !canLoadPowerspots" class="counts layer-hint"> · needs auth</span>
+          </label>
+          <label v-if="t === 'powerspot'" class="filter filter-nested">
+            <input
+              v-model="showInactivePowerspots"
+              type="checkbox"
+              :disabled="!enabled.powerspot"
+            />
+            Inactive
+            <span class="counts">({{ inactivePowerspotCount }})</span>
           </label>
           <label v-if="t === 'route'" class="filter filter-nested">
             <input v-model="showAllRoutes" type="checkbox" :disabled="!enabled.route" />
@@ -135,7 +144,10 @@
                   <TypeIcon v-else :type="group.type" />
                   <div>
                     <div>{{ p.name }}</div>
-                    <div class="meta">{{ TYPE_META[group.type].label }}</div>
+                    <div class="meta">
+                      {{ TYPE_META[group.type].label }}
+                      <span v-if="isInactivePowerspot(p)"> · Inactive</span>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -158,7 +170,10 @@
               <TypeIcon v-else :type="poiDisplayType(p, enabled.super_mega_gym)" />
               <div>
                 <div>{{ p.name }}</div>
-                <div class="meta">{{ TYPE_META[poiDisplayType(p, enabled.super_mega_gym)].label }}</div>
+                <div class="meta">
+                  {{ TYPE_META[poiDisplayType(p, enabled.super_mega_gym)].label }}
+                  <span v-if="isInactivePowerspot(p)"> · Inactive</span>
+                </div>
               </div>
             </div>
           </template>
@@ -176,6 +191,7 @@ import {
   LAYER_TYPES,
   TYPE_META,
   isGymPoi,
+  isInactivePowerspot,
   isSuperMegaPoi,
   normalizePoiType,
   poiDisplayType,
@@ -202,6 +218,7 @@ const emit = defineEmits<{
 }>();
 
 const { openSettings, token } = useSessionToken();
+const { ready: wayfarerReady } = useWayfarerCredentials();
 const { openTutorial } = useTutorial();
 
 const enabled = defineModel<Record<PoiType, boolean>>("enabled", { required: true });
@@ -209,7 +226,10 @@ const baseLayerId = defineModel<string>("baseLayerId", { required: true });
 const showCells = defineModel<boolean>("showCells", { required: true });
 const exportMode = defineModel<boolean>("exportMode", { required: true });
 const showAllRoutes = defineModel<boolean>("showAllRoutes", { required: true });
+const showInactivePowerspots = defineModel<boolean>("showInactivePowerspots", { required: true });
 const groupByLayer = defineModel<boolean>("groupByLayer", { required: true });
+
+const canLoadPowerspots = computed(() => !!token.value || wayfarerReady.value);
 
 const layerTypes = LAYER_TYPES;
 const cellLabel = computed(() => {
@@ -296,7 +316,15 @@ const counts = computed(() => {
   return c;
 });
 
-const visiblePois = computed(() => props.pois.filter((p) => poiLayerVisible(p, enabled.value)));
+const inactivePowerspotCount = computed(
+  () => props.pois.filter((p) => isInactivePowerspot(p)).length,
+);
+
+const visiblePois = computed(() =>
+  props.pois.filter((p) =>
+    poiLayerVisible(p, enabled.value, { showInactivePowerspots: showInactivePowerspots.value }),
+  ),
+);
 
 const filteredPois = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -331,13 +359,16 @@ const status = computed(() => {
 });
 
 function onLayerChange(t: PoiType, checked: boolean) {
-  if (t === "powerspot" && checked && !token.value) {
+  if (t === "powerspot" && checked && !canLoadPowerspots.value) {
     emit("request-powerspot-auth");
     return;
   }
   enabled.value = { ...enabled.value, [t]: checked };
   if (t === "route" && !checked) {
     showAllRoutes.value = false;
+  }
+  if (t === "powerspot" && !checked) {
+    showInactivePowerspots.value = true;
   }
 }
 </script>

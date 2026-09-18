@@ -7,7 +7,7 @@
     aria-labelledby="settings-title"
     @click.self="onBackdropClick"
   >
-    <form class="token-card export-card" @submit.prevent="submit">
+    <form class="token-card export-card" @submit.prevent="submitActive">
       <div class="modal-header">
         <h2 id="settings-title">Settings</h2>
         <button type="button" class="modal-close" title="Close" aria-label="Close" @click="emit('close')">
@@ -21,64 +21,217 @@
       </div>
 
       <div class="settings-section">
-        <h3 class="settings-heading">Campfire session token</h3>
+        <h3 class="settings-heading">Powerspot login</h3>
         <p class="export-sub">
-          Optional — only needed for Powerspots. Gyms, PokéStops, and routes load without a token. Stored only in this
-          browser’s local storage and sent to this app’s proxy — not to Google.
-        </p>
-        <p class="counts settings-status">
-          {{
-            token
-              ? "A token is saved in this browser."
-              : "No session token — browsing without auth. Add one to load Powerspots."
-          }}
+          Only needed for Powerspots. Gyms, PokéStops, and routes load without login. Choose one source — credentials stay
+          in this browser and are sent only to this app’s proxy.
         </p>
 
-        <details class="token-howto" :open="!token">
-          <summary>How to get a token</summary>
-          <div class="token-howto-body">
-            <ol class="tutorial-list token-howto-list">
-              <li>
-                Open
+        <div class="auth-source-row" role="radiogroup" aria-label="Powerspot login source">
+          <label class="filter">
+            <input v-model="source" type="radio" value="campfire" />
+            Campfire
+            <span class="auth-source-hint">(active only)</span>
+          </label>
+          <label class="filter">
+            <input v-model="source" type="radio" value="wayfarer" />
+            Wayfarer
+            <span class="auth-source-hint">(all)</span>
+          </label>
+        </div>
+
+        <p class="counts settings-status">{{ statusText }}</p>
+
+        <template v-if="source === 'campfire'">
+          <details class="token-howto" :open="!token">
+            <summary>How to get a Campfire token</summary>
+            <div class="token-howto-body">
+              <p class="token-howto-lead">
+                1. Open
                 <a href="https://campfire.scopely.com/discover" target="_blank" rel="noreferrer">campfire.scopely.com/discover</a>
                 and sign in.
-              </li>
-              <li>
-                On that Campfire page, right‑click anywhere → choose <strong>Inspect</strong>
-                (Safari: turn on the Develop menu first under Safari → Settings → Advanced, then
-                Develop → Show Web Inspector).
-              </li>
-              <li>
-                In the panel that opens, click the tab named
-                <strong>Application</strong> (Chrome / Edge) or <strong>Storage</strong> (Firefox / Safari).
-              </li>
-              <li>
-                On the left, open <strong>Local Storage</strong>, then click
-                <code>https://campfire.scopely.com</code>.
-              </li>
-              <li>
-                In the list, find <code>CapacitorStorage.sessionToken</code>.
-                Double‑click its value and copy it.
-              </li>
-              <li>Paste it in the box below and click <strong>Save token</strong>.</li>
-            </ol>
-            <p class="token-howto-note">
-              If you don’t see that key, refresh the Campfire page while signed in and try again.
-              Tokens expire — grab a new one if Powerspots stop loading.
-            </p>
-          </div>
-        </details>
+              </p>
+              <p class="token-howto-lead">2. Follow the steps for your browser:</p>
 
-        <label class="token-label" for="session-token">Session token</label>
-        <textarea
-          id="session-token"
-          v-model="draft"
-          class="search token-input"
-          rows="5"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Bearer eyJ… or the token only"
-        />
+              <div class="token-howto-browsers">
+              <details class="token-howto-browser" :open="openBrowser === 'chrome'">
+                <summary @click.prevent="toggleBrowser('chrome')">Chrome / Edge</summary>
+                <ol class="tutorial-list token-howto-list">
+                  <li>Right‑click the page → <strong>Inspect</strong>.</li>
+                  <li>Open the <strong>Application</strong> tab.</li>
+                  <li>
+                    Left sidebar → <strong>Local Storage</strong> →
+                    <code>https://campfire.scopely.com</code>.
+                  </li>
+                  <li>
+                    Find <code>CapacitorStorage.sessionToken</code>, double‑click the value, and copy it.
+                  </li>
+                </ol>
+              </details>
+
+              <details class="token-howto-browser" :open="openBrowser === 'firefox'">
+                <summary @click.prevent="toggleBrowser('firefox')">Firefox</summary>
+                <ol class="tutorial-list token-howto-list">
+                  <li>Right‑click the page → <strong>Inspect</strong>.</li>
+                  <li>Open the <strong>Storage</strong> tab.</li>
+                  <li>
+                    Left sidebar → <strong>Local Storage</strong> →
+                    <code>https://campfire.scopely.com</code>.
+                  </li>
+                  <li>
+                    Find <code>CapacitorStorage.sessionToken</code>, double‑click the value, and copy it.
+                  </li>
+                </ol>
+              </details>
+
+              <details class="token-howto-browser" :open="openBrowser === 'safari'">
+                <summary @click.prevent="toggleBrowser('safari')">Safari</summary>
+                <ol class="tutorial-list token-howto-list">
+                  <li>
+                    Enable the Develop menu: <strong>Safari → Settings → Advanced</strong> → check
+                    <strong>Show features for web developers</strong>.
+                  </li>
+                  <li><strong>Develop → Show Web Inspector</strong>.</li>
+                  <li>Open the <strong>Storage</strong> tab.</li>
+                  <li>
+                    Left sidebar → <strong>Local Storage</strong> →
+                    <code>https://campfire.scopely.com</code>.
+                  </li>
+                  <li>
+                    Find <code>CapacitorStorage.sessionToken</code>, double‑click the value, and copy it.
+                  </li>
+                </ol>
+              </details>
+              </div>
+
+              <p class="token-howto-lead">3. Paste the token below and click <strong>Save</strong>.</p>
+              <p class="token-howto-note">
+                If the key is missing, refresh Campfire while signed in and try again. Tokens expire — grab a new one
+                if Powerspots stop loading.
+              </p>
+            </div>
+          </details>
+
+          <label class="token-label" for="session-token">Session token</label>
+          <div class="secret-field">
+            <input
+              id="session-token"
+              v-model="draft"
+              class="search token-input"
+              :type="showCampfireToken ? 'text' : 'password'"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Bearer eyJ… or the token only"
+            />
+            <button type="button" class="secret-toggle" @click="showCampfireToken = !showCampfireToken">
+              {{ showCampfireToken ? "Hide" : "Show" }}
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <details class="token-howto" :open="!wayReady">
+            <summary>How to get SESSION and XSRF-TOKEN</summary>
+            <div class="token-howto-body">
+              <p class="token-howto-lead">
+                1. Open
+                <a href="https://wayfarer.scopely.com" target="_blank" rel="noreferrer">wayfarer.scopely.com</a>
+                and sign in.
+              </p>
+              <p class="token-howto-lead">2. Follow the steps for your browser:</p>
+
+              <div class="token-howto-browsers">
+              <details class="token-howto-browser" :open="openBrowser === 'chrome'">
+                <summary @click.prevent="toggleBrowser('chrome')">Chrome / Edge</summary>
+                <ol class="tutorial-list token-howto-list">
+                  <li>Right‑click the page → <strong>Inspect</strong>.</li>
+                  <li>Open the <strong>Application</strong> tab.</li>
+                  <li>
+                    Left sidebar → <strong>Cookies</strong> →
+                    <code>https://wayfarer.scopely.com</code>.
+                  </li>
+                  <li>
+                    Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
+                  </li>
+                </ol>
+              </details>
+
+              <details class="token-howto-browser" :open="openBrowser === 'firefox'">
+                <summary @click.prevent="toggleBrowser('firefox')">Firefox</summary>
+                <ol class="tutorial-list token-howto-list">
+                  <li>Right‑click the page → <strong>Inspect</strong>.</li>
+                  <li>Open the <strong>Storage</strong> tab.</li>
+                  <li>
+                    Left sidebar → <strong>Cookies</strong> →
+                    <code>https://wayfarer.scopely.com</code>.
+                  </li>
+                  <li>
+                    Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
+                  </li>
+                </ol>
+              </details>
+
+              <details class="token-howto-browser" :open="openBrowser === 'safari'">
+                <summary @click.prevent="toggleBrowser('safari')">Safari</summary>
+                <ol class="tutorial-list token-howto-list">
+                  <li>
+                    Enable the Develop menu: <strong>Safari → Settings → Advanced</strong> → check
+                    <strong>Show features for web developers</strong>.
+                  </li>
+                  <li><strong>Develop → Show Web Inspector</strong>.</li>
+                  <li>Open the <strong>Storage</strong> tab.</li>
+                  <li>
+                    Left sidebar → <strong>Cookies</strong> →
+                    <code>https://wayfarer.scopely.com</code>.
+                  </li>
+                  <li>
+                    Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
+                  </li>
+                </ol>
+              </details>
+              </div>
+
+              <p class="token-howto-lead">3. Paste both values below and click <strong>Save</strong>.</p>
+              <p class="token-howto-note">Cookies expire — paste fresh ones if Powerspots stop loading.</p>
+            </div>
+          </details>
+
+          <label class="token-label" for="wayfarer-session">SESSION</label>
+          <div class="secret-field">
+            <input
+              id="wayfarer-session"
+              v-model="waySession"
+              class="search token-input"
+              :type="showWaySession ? 'text' : 'password'"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="SESSION cookie value"
+            />
+            <button type="button" class="secret-toggle" @click="showWaySession = !showWaySession">
+              {{ showWaySession ? "Hide" : "Show" }}
+            </button>
+          </div>
+          <label class="token-label" for="wayfarer-xsrf">XSRF-TOKEN</label>
+          <div class="secret-field">
+            <input
+              id="wayfarer-xsrf"
+              v-model="wayXsrf"
+              class="search token-input"
+              :type="showWayXsrf ? 'text' : 'password'"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="XSRF-TOKEN cookie value"
+            />
+            <button type="button" class="secret-toggle" @click="showWayXsrf = !showWayXsrf">
+              {{ showWayXsrf ? "Hide" : "Show" }}
+            </button>
+          </div>
+        </template>
+
+        <div class="btn-row" style="margin-top: 10px">
+          <button type="submit" class="primary" :disabled="!canSave">Save</button>
+          <button v-if="hasSavedForSource" type="button" @click="clearActive">Remove</button>
+        </div>
       </div>
 
       <div class="settings-section">
@@ -92,11 +245,6 @@
         </button>
       </div>
 
-      <div class="btn-row" style="margin-top: 14px">
-        <button type="submit" class="primary" :disabled="!draft.trim()">Save token</button>
-        <button v-if="token" type="button" @click="clearToken">Remove token</button>
-      </div>
-
       <AppFooter />
     </form>
   </div>
@@ -105,41 +253,116 @@
 <script setup lang="ts">
 import { downloadMyMapsIconsZip } from "~/utils/myMapsIcons";
 
+type AuthSource = "campfire" | "wayfarer";
+type BrowserGuide = "chrome" | "firefox" | "safari";
+
 const props = defineProps<{
   open: boolean;
   token: string;
+  wayfarerEnabled: boolean;
+  wayfarerSession: string;
+  wayfarerXsrf: string;
 }>();
 
 const emit = defineEmits<{
   close: [];
   save: [token: string];
   clear: [];
+  "save-wayfarer": [payload: { enabled: boolean; session: string; xsrfToken: string }];
+  "clear-wayfarer": [];
 }>();
 
+const source = ref<AuthSource>("campfire");
 const draft = ref("");
+const waySession = ref("");
+const wayXsrf = ref("");
+const showCampfireToken = ref(false);
+const showWaySession = ref(false);
+const showWayXsrf = ref(false);
 const downloadingIcons = ref(false);
+const openBrowser = ref<BrowserGuide>("chrome");
+
+function toggleBrowser(browser: BrowserGuide) {
+  openBrowser.value = browser;
+}
+
+watch(source, () => {
+  openBrowser.value = "chrome";
+});
+
+const wayDraftReady = computed(() => !!waySession.value.trim() && !!wayXsrf.value.trim());
+const wayReady = computed(() => props.wayfarerEnabled && !!props.wayfarerSession && !!props.wayfarerXsrf);
+
+const statusText = computed(() => {
+  if (source.value === "campfire") {
+    return props.token
+      ? "Campfire token is saved."
+      : "No Campfire token — paste one to load Powerspots.";
+  }
+  return wayReady.value
+    ? "Wayfarer credentials are saved."
+    : "No Wayfarer credentials — paste SESSION and XSRF-TOKEN to load Powerspots.";
+});
+
+const canSave = computed(() => {
+  if (source.value === "campfire") return !!draft.value.trim();
+  return wayDraftReady.value;
+});
+
+const hasSavedForSource = computed(() => {
+  if (source.value === "campfire") return !!props.token;
+  return wayReady.value || !!props.wayfarerSession || !!props.wayfarerXsrf;
+});
 
 watch(
-  () => [props.open, props.token] as const,
-  ([open, token]) => {
-    if (open) draft.value = token;
+  () =>
+    [props.open, props.token, props.wayfarerEnabled, props.wayfarerSession, props.wayfarerXsrf] as const,
+  ([open, token, wEnabled, wSession, wXsrf]) => {
+    if (!open) return;
+    draft.value = token;
+    waySession.value = wSession;
+    wayXsrf.value = wXsrf;
+    if (wEnabled && wSession && wXsrf) {
+      source.value = "wayfarer";
+    } else if (token) {
+      source.value = "campfire";
+    } else if (wSession || wXsrf) {
+      source.value = "wayfarer";
+    } else {
+      source.value = "campfire";
+    }
   },
   { immediate: true },
 );
 
-function submit() {
-  const next = normalizeSessionToken(draft.value);
-  if (!next) return;
-  emit("save", next);
+function submitActive() {
+  if (source.value === "campfire") {
+    const next = normalizeSessionToken(draft.value);
+    if (!next) return;
+    emit("save", next);
+    return;
+  }
+  if (!wayDraftReady.value) return;
+  emit("save-wayfarer", {
+    enabled: true,
+    session: waySession.value,
+    xsrfToken: wayXsrf.value,
+  });
 }
 
 function onBackdropClick() {
   emit("close");
 }
 
-function clearToken() {
-  draft.value = "";
-  emit("clear");
+function clearActive() {
+  if (source.value === "campfire") {
+    draft.value = "";
+    emit("clear");
+    return;
+  }
+  waySession.value = "";
+  wayXsrf.value = "";
+  emit("clear-wayfarer");
 }
 
 async function downloadIcons() {

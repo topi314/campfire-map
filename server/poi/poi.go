@@ -54,6 +54,11 @@ func ParseType(s string) (Type, bool) {
 	}
 }
 
+const (
+	StatusActive   = "active"
+	StatusInactive = "inactive"
+)
+
 type POI struct {
 	ID                string       `json:"id"`
 	Type              Type         `json:"type"`
@@ -63,6 +68,12 @@ type POI struct {
 	Lng               float64      `json:"lng"`
 	Path              [][2]float64 `json:"path,omitempty"`
 	SuperMegaEligible bool         `json:"superMegaEligible,omitempty"`
+	// Status is set for Wayfarer powerspots ("active" / "inactive"); empty for GraphQL sources.
+	Status string `json:"status,omitempty"`
+}
+
+func (p POI) IsInactivePowerspot() bool {
+	return p.Type == TypePowerspot && p.Status == StatusInactive
 }
 
 func (p *POI) Normalize() {

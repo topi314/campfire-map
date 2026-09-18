@@ -14,6 +14,12 @@ url = "https://niantic-social-api.nianticlabs.com/graphql"
 max_retries = 3
 reality_channel_id = "da83476a-c4da-4312-a610-a4f2fc2c37f0"
 s2_cell_level = 15
+s2_cell_max_level = 17
+
+[wayfarer]
+# Endpoint only — SESSION / XSRF-TOKEN are entered in the browser Settings UI.
+url = "https://wayfarer.scopely.com/api/v1/vault/mapview/gcs"
+max_retries = 3
 
 [cache]
 ttl = "24h"

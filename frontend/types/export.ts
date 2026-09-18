@@ -1,4 +1,13 @@
-import { LAYER_TYPES, TYPE_META, isGymPoi, isSuperMegaPoi, type Poi, type PoiType } from "~/types/poi";
+import {
+  LAYER_TYPES,
+  TYPE_META,
+  isGymPoi,
+  isInactivePowerspot,
+  isSuperMegaPoi,
+  powerspotDisplayName,
+  type Poi,
+  type PoiType,
+} from "~/types/poi";
 
 export interface ExportSettings {
   mapName: string;
@@ -6,6 +15,7 @@ export interface ExportSettings {
   format: "kmz" | "kml";
   includeTypes: Record<PoiType, boolean>;
   includeRoutePaths: boolean;
+  includeInactivePowerspots: boolean;
 }
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
@@ -20,6 +30,7 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
     route: true,
   },
   includeRoutePaths: true,
+  includeInactivePowerspots: true,
 };
 
 export function sanitizeFileName(name: string) {
@@ -45,9 +56,16 @@ export function filterPoisForExport(pois: Poi[], settings: ExportSettings): Poi[
       continue;
     }
     if (!settings.includeTypes[p.type]) continue;
+    if (p.type === "powerspot" && isInactivePowerspot(p) && !settings.includeInactivePowerspots) {
+      continue;
+    }
     if (p.type === "route" && !settings.includeRoutePaths) {
       const { path: _path, ...rest } = p;
       out.push(rest);
+      continue;
+    }
+    if (p.type === "powerspot" && isInactivePowerspot(p)) {
+      out.push({ ...p, name: powerspotDisplayName(p) });
       continue;
     }
     out.push(p);

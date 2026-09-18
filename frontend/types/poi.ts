@@ -1,5 +1,7 @@
 export type PoiType = "gym" | "super_mega_gym" | "pokestop" | "powerspot" | "route";
 
+export type PowerspotStatus = "active" | "inactive";
+
 export interface MapCell {
   id: string;
   level: number;
@@ -15,6 +17,8 @@ export interface Poi {
   lng: number;
   path?: [number, number][];
   superMegaEligible?: boolean;
+  /** Set for Wayfarer powerspots. */
+  status?: PowerspotStatus | string;
 }
 
 export const TYPE_META: Record<
@@ -31,6 +35,13 @@ export const TYPE_META: Record<
   pokestop: { label: "PokéStops", color: "#7fcafe", short: "S", image: "/images/pgo-pokestop.svg" },
   powerspot: { label: "Powerspot", color: "#f481c4", short: "P", image: "/images/pgo-powerspot.svg" },
   route: { label: "Routes", color: "#3da0ff", short: "R", image: "/images/pgo-route.svg" },
+};
+
+/** Darker powerspot styling for inactive Wayfarer spots (same glyph, darker tint). */
+export const INACTIVE_POWERSPOT = {
+  label: "Inactive",
+  color: "#6b2d4a",
+  image: "/images/pgo-powerspot.svg",
 };
 
 /** Route line and endpoint colors (official map). */
@@ -51,7 +62,8 @@ export function normalizePoiType(t: string): PoiType {
 
 export function normalizePoi(p: Poi): Poi {
   const type = normalizePoiType(p.type);
-  return type === p.type ? p : { ...p, type };
+  const status = typeof p.status === "string" ? p.status.toLowerCase() : p.status;
+  return type === p.type && status === p.status ? p : { ...p, type, status };
 }
 
 export function isGymPoi(p: Poi) {
@@ -60,6 +72,10 @@ export function isGymPoi(p: Poi) {
 
 export function isSuperMegaPoi(p: Poi) {
   return !!p.superMegaEligible || p.type === "super_mega_gym";
+}
+
+export function isInactivePowerspot(p: Poi) {
+  return normalizePoiType(p.type) === "powerspot" && p.status === "inactive";
 }
 
 export function poiDisplayType(p: Poi, superMegaLayerOn: boolean): PoiType {
@@ -72,9 +88,25 @@ export function poiDisplayType(p: Poi, superMegaLayerOn: boolean): PoiType {
   return normalizePoiType(p.type);
 }
 
-export function poiLayerVisible(p: Poi, enabled: Record<PoiType, boolean>) {
+export function poiLayerVisible(
+  p: Poi,
+  enabled: Record<PoiType, boolean>,
+  opts?: { showInactivePowerspots?: boolean },
+) {
   if (isGymPoi(p)) {
     return !!enabled.gym || (!!enabled.super_mega_gym && isSuperMegaPoi(p));
   }
-  return !!enabled[normalizePoiType(p.type)];
+  const type = normalizePoiType(p.type);
+  if (!enabled[type]) return false;
+  if (type === "powerspot" && isInactivePowerspot(p) && opts?.showInactivePowerspots === false) {
+    return false;
+  }
+  return true;
+}
+
+export function powerspotDisplayName(p: Poi) {
+  if (isInactivePowerspot(p) && !/\(inactive\)$/i.test(p.name)) {
+    return `${p.name} (inactive)`;
+  }
+  return p.name;
 }

@@ -67,6 +67,15 @@
           Include full route paths
           <span class="counts">(start point only when off)</span>
         </label>
+        <label class="filter export-setting-toggle">
+          <input
+            v-model="draft.includeInactivePowerspots"
+            type="checkbox"
+            :disabled="!draft.includeTypes.powerspot"
+          />
+          Include inactive powerspots
+          <span class="counts">(tagged in name)</span>
+        </label>
       </div>
 
       <div class="export-settings export-icons-section">
@@ -176,6 +185,10 @@ watch(
         ...DEFAULT_EXPORT_SETTINGS.includeTypes,
         ...saved?.includeTypes,
       },
+      includeInactivePowerspots:
+        typeof saved?.includeInactivePowerspots === "boolean"
+          ? saved.includeInactivePowerspots
+          : DEFAULT_EXPORT_SETTINGS.includeInactivePowerspots,
     };
     if (!draft.value.mapName.trim()) {
       draft.value.mapName = DEFAULT_EXPORT_SETTINGS.mapName;

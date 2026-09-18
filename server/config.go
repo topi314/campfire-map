@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/topi314/campfire-export/server/campfire"
+	"github.com/topi314/campfire-export/server/wayfarer"
 )
 
 func LoadConfig(cfgPath string) (Config, error) {
@@ -46,6 +47,10 @@ func defaultConfig() Config {
 			RealityChannelID: campfire.DefaultRealityChannelID,
 			S2CellLevel:      15,
 		},
+		Wayfarer: wayfarer.Config{
+			URL:        wayfarer.DefaultURL,
+			MaxRetries: 3,
+		},
 		Cache: CacheConfig{
 			TTL: 24 * time.Hour,
 		},
@@ -61,16 +66,18 @@ type Config struct {
 	Log      LogConfig       `toml:"log"`
 	Server   ServerConfig    `toml:"server"`
 	Campfire campfire.Config `toml:"campfire"`
+	Wayfarer wayfarer.Config `toml:"wayfarer"`
 	Cache    CacheConfig     `toml:"cache"`
 	Limits   LimitsConfig    `toml:"limits"`
 	Basemaps BasemapsConfig  `toml:"basemaps"`
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("Log: %s\nServer: %s\nCampfire: %s\nCache: %s\nLimits: %s\nBasemaps: %s",
+	return fmt.Sprintf("Log: %s\nServer: %s\nCampfire: %s\nWayfarer: %s\nCache: %s\nLimits: %s\nBasemaps: %s",
 		c.Log,
 		c.Server,
 		c.Campfire,
+		c.Wayfarer,
 		c.Cache,
 		c.Limits,
 		c.Basemaps,

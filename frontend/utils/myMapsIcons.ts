@@ -1,5 +1,5 @@
 import { zipSync } from "fflate";
-import { ALL_TYPES, ROUTE_COLORS, TYPE_META, type PoiType } from "~/types/poi";
+import { ALL_TYPES, INACTIVE_POWERSPOT, ROUTE_COLORS, TYPE_META, type PoiType } from "~/types/poi";
 
 const ICON_SIZE = 128;
 
@@ -67,7 +67,8 @@ Files:
   gym.png            — Gyms
   super_mega_gym.png — Super Mega Gyms
   pokestop.png       — PokéStops
-  powerspot.png      — Powerspot
+  powerspot.png      — Powerspot (active)
+  powerspot-inactive.png — Inactive powerspot
   route.png          — Routes (start marker)
   route-end.png      — Route end point
 
@@ -82,6 +83,7 @@ export async function downloadMyMapsIconsZip() {
   for (const type of ALL_TYPES) {
     files[`${type}.png`] = await rasterizeType(type);
   }
+  files["powerspot-inactive.png"] = await svgToPng(INACTIVE_POWERSPOT.image, INACTIVE_POWERSPOT.color);
   files["route-end.png"] = await svgToPng(TYPE_META.route.image, ROUTE_COLORS.end, true);
 
   const zipped = zipSync(files);

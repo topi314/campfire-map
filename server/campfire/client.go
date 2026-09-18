@@ -34,9 +34,14 @@ var pgoDropTypesPublic = []string{
 // DropTypesForToken returns Campfire drop types. Powerspots require a bearer token.
 func DropTypesForToken(token string) []string {
 	if strings.TrimSpace(token) != "" {
-		return pgoDropTypesAuthed
+		return append([]string(nil), pgoDropTypesAuthed...)
 	}
-	return pgoDropTypesPublic
+	return append([]string(nil), pgoDropTypesPublic...)
+}
+
+// DropTypesWithoutPowerspot returns gym/stop/route types (no PGO_POWERSPOT).
+func DropTypesWithoutPowerspot() []string {
+	return append([]string(nil), pgoDropTypesPublic...)
 }
 
 // CacheKeySuffix distinguishes authed vs public tile caches.
@@ -92,9 +97,16 @@ type gqlResp struct {
 }
 
 func (c *Client) Fetch(ctx context.Context, cellIDs []string, level int) ([]poi.POI, error) {
+	return c.FetchWithDropTypes(ctx, cellIDs, level, DropTypesForToken(tokenFor(ctx)))
+}
+
+// FetchWithDropTypes loads map objects using the given PGO drop types.
+func (c *Client) FetchWithDropTypes(ctx context.Context, cellIDs []string, level int, dropTypes []string) ([]poi.POI, error) {
 	// Campfire returns full POI details at S2 level 15.
 	level = 15
-	dropTypes := DropTypesForToken(tokenFor(ctx))
+	if len(dropTypes) == 0 {
+		dropTypes = DropTypesForToken(tokenFor(ctx))
+	}
 	raw, err := c.do(ctx, queryMapByS2Cells, c.mapByS2CellsVars(cellIDs, level, dropTypes))
 	if err != nil {
 		return nil, err

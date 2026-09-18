@@ -1,4 +1,4 @@
-import { TYPE_META, type Poi, type PoiType } from "~/types/poi";
+import { INACTIVE_POWERSPOT, TYPE_META, isInactivePowerspot, type Poi, type PoiType } from "~/types/poi";
 
 function escapeHtml(s: string) {
   return s
@@ -20,11 +20,15 @@ function iconBlock(p: Poi, display: PoiType) {
   if (display === "super_mega_gym") {
     return `<img class="poi-popup-photo" src="${escapeAttr(meta.image)}" alt="" />`;
   }
+  if (isInactivePowerspot(p)) {
+    return `<span class="poi-popup-glyph" style="background:${INACTIVE_POWERSPOT.color};-webkit-mask-image:url(${escapeAttr(INACTIVE_POWERSPOT.image)});mask-image:url(${escapeAttr(INACTIVE_POWERSPOT.image)})"></span>`;
+  }
   return `<span class="poi-popup-glyph" style="background:${meta.color};-webkit-mask-image:url(${escapeAttr(meta.image)});mask-image:url(${escapeAttr(meta.image)})"></span>`;
 }
 
 export function poiPopupHtml(p: Poi, isSelected: boolean, display: PoiType = p.type) {
   const meta = TYPE_META[display];
+  const typeLabel = isInactivePowerspot(p) ? `${meta.label} · Inactive` : meta.label;
   const metaLines: string[] = [];
   if (p.type === "route" && p.path && p.path.length > 1) {
     metaLines.push(`${p.path.length} waypoints`);
@@ -37,7 +41,7 @@ export function poiPopupHtml(p: Poi, isSelected: boolean, display: PoiType = p.t
         ${iconBlock(p, display)}
         <div class="poi-popup-titles">
           <div class="poi-popup-name">${escapeHtml(p.name)}</div>
-          <div class="poi-popup-type">${escapeHtml(meta.label)}</div>
+          <div class="poi-popup-type">${escapeHtml(typeLabel)}</div>
         </div>
       </div>
       <div class="poi-popup-meta">${metaLines.map((line) => escapeHtml(line)).join("<br>")}</div>
