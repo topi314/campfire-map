@@ -137,6 +137,19 @@ body {
   margin: 0 0 8px;
 }
 
+.auth-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin: 8px 0 10px;
+}
+
+.auth-source-hint {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.9em;
+}
+
 .settings-status {
   margin: 0 0 12px;
 }
@@ -159,6 +172,42 @@ body {
 
 .token-howto-body {
   margin-top: 8px;
+}
+
+.token-howto-lead {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.token-howto-browser {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.token-howto-browsers {
+  /* Keep card height stable while switching browsers (Safari is tallest). */
+  min-height: 15rem;
+}
+
+.token-howto-browser:last-child {
+  margin-bottom: 0;
+}
+
+.token-howto-browser summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  user-select: none;
+}
+
+.token-howto-browser .token-howto-list {
+  margin-top: 6px;
 }
 
 .token-howto-note {
@@ -821,9 +870,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   z-index: 2000;
   background: rgba(8, 10, 16, 0.72);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 24px;
+  overflow-y: auto;
 }
 
 .export-card {
@@ -888,7 +938,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .token-card {
-  width: min(480px, 100%);
+  width: min(640px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -952,10 +1004,38 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .token-input {
-  resize: vertical;
-  min-height: 96px;
+  box-sizing: border-box;
   font-family: ui-monospace, Consolas, monospace;
   font-size: 0.8rem;
+  line-height: 1.35;
+  min-height: 0;
+  resize: none;
+}
+
+.secret-field {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.secret-field .token-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.secret-toggle {
+  flex-shrink: 0;
+  min-width: 3.75rem;
+}
+
+.secret-field + .token-label {
+  margin-top: 12px;
+}
+
+input.token-input:disabled,
+.secret-toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 @media (max-width: 860px) {

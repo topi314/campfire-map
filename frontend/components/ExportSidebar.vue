@@ -75,6 +75,7 @@
                     <div>{{ p.name }}</div>
                     <div class="meta">
                       {{ TYPE_META[group.type].label }}
+                      <span v-if="isInactivePowerspot(p)"> · Inactive</span>
                       <span v-if="!inViewIds.has(p.id)"> · off map</span>
                     </div>
                   </div>
@@ -95,6 +96,7 @@
                 <div>{{ p.name }}</div>
                 <div class="meta">
                   {{ TYPE_META[poiDisplayType(p, enabled.super_mega_gym)].label }}
+                  <span v-if="isInactivePowerspot(p)"> · Inactive</span>
                   <span v-if="!inViewIds.has(p.id)"> · off map</span>
                 </div>
               </div>
@@ -120,6 +122,7 @@ import { filterPoisForExport, sanitizeFileName, type ExportSettings } from "~/ty
 import {
   LAYER_TYPES,
   TYPE_META,
+  isInactivePowerspot,
   poiDisplayType,
   poiLayerVisible,
   type Poi,
@@ -132,6 +135,7 @@ const props = defineProps<{
   selected: Set<string>;
   drawing: boolean;
   enabled: Record<PoiType, boolean>;
+  showInactivePowerspots: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -151,7 +155,9 @@ const config = useRuntimeConfig();
 const { authHeaders, invalidateToken } = useSessionToken();
 
 const visiblePois = computed(() =>
-  props.pois.filter((p) => poiLayerVisible(p, props.enabled)),
+  props.pois.filter((p) =>
+    poiLayerVisible(p, props.enabled, { showInactivePowerspots: props.showInactivePowerspots }),
+  ),
 );
 
 const inViewIds = computed(() => new Set(props.pois.map((p) => p.id)));

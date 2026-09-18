@@ -3,9 +3,14 @@
     <SettingsModal
       :open="settingsOpen"
       :token="token"
+      :wayfarer-enabled="wayfarerEnabled"
+      :wayfarer-session="wayfarerSession"
+      :wayfarer-xsrf="wayfarerXsrf"
       @close="closeSettings"
       @save="onTokenSave"
       @clear="onTokenClear"
+      @save-wayfarer="onWayfarerSave"
+      @clear-wayfarer="onWayfarerClear"
     />
     <TutorialModal :open="tutorialOpen" @close="closeTutorial" />
     <div class="map-wrap">
@@ -20,6 +25,7 @@
       v-model:show-cells="showCells"
       v-model:export-mode="exportMode"
       v-model:show-all-routes="showAllRoutes"
+      v-model:show-inactive-powerspots="showInactivePowerspots"
       v-model:group-by-layer="groupByLayer"
       :l14-count="l14Count"
       :l17-count="l17Count"
@@ -35,6 +41,7 @@
       v-model:export-mode="exportMode"
       v-model:group-by-layer="groupByLayer"
       :enabled="enabled"
+      :show-inactive-powerspots="showInactivePowerspots"
       :pois="pois"
       :export-pois="exportPois"
       :selected="selected"
@@ -64,8 +71,10 @@ import type {
 } from "leaflet";
 import {
   ALL_TYPES,
+  INACTIVE_POWERSPOT,
   ROUTE_COLORS,
   TYPE_META,
+  isInactivePowerspot,
   normalizePoi,
   poiDisplayType,
   poiLayerVisible,
@@ -79,6 +88,16 @@ import { attachExportGestures, attachLongPress, eventHasShift } from "~/utils/ex
 const config = useRuntimeConfig();
 const { token, settingsOpen, save, openSettings, closeSettings, clearToken, invalidateToken, authHeaders } =
   useSessionToken();
+const {
+  enabled: wayfarerEnabled,
+  session: wayfarerSession,
+  xsrfToken: wayfarerXsrf,
+  ready: wayfarerReady,
+  save: saveWayfarer,
+  clear: clearWayfarer,
+  invalidate: invalidateWayfarer,
+  wayfarerHeaders,
+} = useWayfarerCredentials();
 const { apiKey: cartoApiKey } = useCartoApiKey();
 const { tutorialOpen, closeTutorial, maybeShowTutorial } = useTutorial();
 const mapEl = ref<HTMLElement | null>(null);
@@ -89,6 +108,7 @@ const exportPoisById = ref<Map<string, Poi>>(new Map());
 const storedUi = readStoredUiSettings();
 const exportMode = ref(storedUi.exportMode);
 const showAllRoutes = ref(storedUi.showAllRoutes);
+const showInactivePowerspots = ref(storedUi.showInactivePowerspots);
 const groupByLayer = ref(storedUi.groupByLayer);
 
 const exportPois = computed(() => {
@@ -113,11 +133,17 @@ const expandedRoutes = ref<Set<string>>(new Set());
 const focusedRouteId = ref<string | null>(null);
 
 function isLayerEnabled(p: Poi) {
-  return poiLayerVisible(p, enabled.value);
+  return poiLayerVisible(p, enabled.value, {
+    showInactivePowerspots: showInactivePowerspots.value,
+  });
 }
 
 function displayType(p: Poi) {
   return poiDisplayType(p, enabled.value.super_mega_gym);
+}
+
+function canLoadPowerspots() {
+  return !!token.value || wayfarerReady.value;
 }
 
 function persistUiSettings() {
@@ -127,6 +153,7 @@ function persistUiSettings() {
     showCells: showCells.value,
     exportMode: exportMode.value,
     showAllRoutes: showAllRoutes.value,
+    showInactivePowerspots: showInactivePowerspots.value,
     groupByLayer: groupByLayer.value,
   });
 }
@@ -182,7 +209,7 @@ onMounted(async () => {
     scheduleLoad();
   });
 
-  if (enabled.value.powerspot && !token.value) {
+  if (enabled.value.powerspot && !canLoadPowerspots()) {
     enabled.value = { ...enabled.value, powerspot: false };
   }
 
@@ -196,7 +223,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  [enabled, baseLayerId, showCells, exportMode, showAllRoutes, groupByLayer],
+  [enabled, baseLayerId, showCells, exportMode, showAllRoutes, showInactivePowerspots, groupByLayer],
   () => persistUiSettings(),
   { deep: true },
 );
@@ -204,6 +231,9 @@ watch(enabled, () => {
   syncMarkers();
   syncRouteOverlays();
 }, { deep: true });
+watch(showInactivePowerspots, () => {
+  syncMarkers();
+});
 watch(selected, () => {
   syncMarkers();
   refreshMarkerSelection();
@@ -230,7 +260,7 @@ watch(exportMode, (on) => {
   });
 });
 watch(settingsOpen, (open) => {
-  if (!open && !token.value) {
+  if (!open && !canLoadPowerspots()) {
     pendingPowerspotEnable = false;
   }
 });
@@ -497,15 +527,48 @@ function onRequestPowerspotAuth() {
 
 async function onTokenSave(next: string) {
   if (!save(next)) return;
+  // Mutual exclusive: Campfire login disables Wayfarer.
+  clearWayfarer();
   if (pendingPowerspotEnable) {
     pendingPowerspotEnable = false;
     enabled.value = { ...enabled.value, powerspot: true };
   }
+  closeSettings();
   await loadPois();
 }
 
 function onTokenClear() {
   clearToken();
+  if (!wayfarerReady.value) {
+    disablePowerspotLayer();
+  }
+  scheduleLoad();
+}
+
+function onWayfarerSave(payload: { enabled: boolean; session: string; xsrfToken: string }) {
+  if (!saveWayfarer(payload)) return;
+  // Mutual exclusive: Wayfarer login clears Campfire token.
+  clearToken();
+  if (pendingPowerspotEnable && wayfarerReady.value) {
+    pendingPowerspotEnable = false;
+    enabled.value = { ...enabled.value, powerspot: true };
+  }
+  if (!payload.enabled && !token.value) {
+    disablePowerspotLayer();
+  }
+  closeSettings();
+  scheduleLoad();
+}
+
+function onWayfarerClear() {
+  clearWayfarer();
+  if (!token.value) {
+    disablePowerspotLayer();
+  }
+  scheduleLoad();
+}
+
+function disablePowerspotLayer() {
   pendingPowerspotEnable = false;
   enabled.value = { ...enabled.value, powerspot: false };
   for (const [id, p] of [...poiCache.entries()]) {
@@ -525,7 +588,6 @@ function onTokenClear() {
     pois.value = poisInBounds(map.getBounds());
   }
   syncMarkers();
-  scheduleLoad();
 }
 
 function goToPlace(place: PlaceResult) {
@@ -541,7 +603,7 @@ function goToPlace(place: PlaceResult) {
 }
 
 function requestTypes(): PoiType[] {
-  if (token.value) return ALL_TYPES;
+  if (canLoadPowerspots()) return ALL_TYPES;
   return ALL_TYPES.filter((t) => t !== "powerspot");
 }
 
@@ -556,12 +618,21 @@ async function loadPois() {
     const types = requestTypes().join(",");
     const res = await fetch(
       `${config.public.apiBase}/api/pois?bbox=${encodeURIComponent(bbox)}&types=${encodeURIComponent(types)}`,
-      { headers: authHeaders() },
+      { headers: wayfarerHeaders(authHeaders()) },
     );
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
+        const msg = await res.text();
+        if (/wayfarer/i.test(msg)) {
+          invalidateWayfarer();
+          enabled.value = { ...enabled.value, powerspot: false };
+          openSettings();
+          throw new Error("Wayfarer session rejected. Paste fresh SESSION and XSRF-TOKEN.");
+        }
         invalidateToken();
-        enabled.value = { ...enabled.value, powerspot: false };
+        if (!wayfarerReady.value) {
+          enabled.value = { ...enabled.value, powerspot: false };
+        }
         throw new Error("Session token rejected. Paste a fresh Campfire token.");
       }
       throw new Error(await res.text());
@@ -1053,15 +1124,19 @@ function routeEndIcon(L: typeof import("leaflet").default, selected: boolean) {
 
 function pinIcon(L: typeof import("leaflet").default, p: Poi) {
   const type = displayType(p);
+  const inactive = isInactivePowerspot(p);
   const meta = TYPE_META[type];
+  const color = inactive ? INACTIVE_POWERSPOT.color : meta.color;
+  const image = inactive ? INACTIVE_POWERSPOT.image : meta.image;
   const sel = selected.value.has(p.id) ? " selected-pin" : "";
+  const inactiveClass = inactive ? " inactive-powerspot" : "";
   const inner =
     type === "super_mega_gym"
       ? `<img src="${meta.image}" alt="">`
-      : `<span class="poi-glyph" style="background:${meta.color};-webkit-mask-image:url(${meta.image});mask-image:url(${meta.image})"></span>`;
+      : `<span class="poi-glyph" style="background:${color};-webkit-mask-image:url(${image});mask-image:url(${image})"></span>`;
   return L.divIcon({
     className: "poi-icon-wrap",
-    html: `<div class="poi-marker${sel}">${inner}</div>`,
+    html: `<div class="poi-marker${sel}${inactiveClass}">${inner}</div>`,
     iconSize: [32, 32],
     iconAnchor: [16, 30],
   });

@@ -9,21 +9,24 @@ import (
 
 	"github.com/topi314/campfire-export/server/cache"
 	"github.com/topi314/campfire-export/server/campfire"
+	"github.com/topi314/campfire-export/server/wayfarer"
 	"github.com/topi314/campfire-export/server/web"
 )
 
 type Server struct {
-	cfg    Config
-	client *campfire.Client
-	cache  *cache.Cache
-	http   *http.Server
+	cfg      Config
+	client   *campfire.Client
+	wayfarer *wayfarer.Client
+	cache    *cache.Cache
+	http     *http.Server
 }
 
 func New(cfg Config) (*Server, error) {
 	s := &Server{
-		cfg:    cfg,
-		client: campfire.New(cfg.Campfire),
-		cache:  cache.New(cfg.Cache.TTL),
+		cfg:      cfg,
+		client:   campfire.New(cfg.Campfire),
+		wayfarer: wayfarer.New(cfg.Wayfarer),
+		cache:    cache.New(cfg.Cache.TTL),
 	}
 	handler, err := s.Handler()
 	if err != nil {

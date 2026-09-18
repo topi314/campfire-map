@@ -9,6 +9,7 @@ export interface StoredUiSettings {
   showCells: boolean;
   exportMode: boolean;
   showAllRoutes: boolean;
+  showInactivePowerspots: boolean;
   groupByLayer: boolean;
 }
 
@@ -27,6 +28,7 @@ export function defaultUiSettings(): StoredUiSettings {
     showCells: false,
     exportMode: false,
     showAllRoutes: false,
+    showInactivePowerspots: true,
     groupByLayer: false,
   };
 }
@@ -53,6 +55,10 @@ function sanitizeSettings(raw: unknown): StoredUiSettings {
   const enabled = sanitizeEnabled(obj.enabled);
   const showAllRoutes =
     typeof obj.showAllRoutes === "boolean" ? obj.showAllRoutes : defaults.showAllRoutes;
+  const showInactivePowerspots =
+    typeof obj.showInactivePowerspots === "boolean"
+      ? obj.showInactivePowerspots
+      : defaults.showInactivePowerspots;
   const groupByLayer =
     typeof obj.groupByLayer === "boolean"
       ? obj.groupByLayer
@@ -65,6 +71,7 @@ function sanitizeSettings(raw: unknown): StoredUiSettings {
     showCells: typeof obj.showCells === "boolean" ? obj.showCells : defaults.showCells,
     exportMode: typeof obj.exportMode === "boolean" ? obj.exportMode : defaults.exportMode,
     showAllRoutes: enabled.route ? showAllRoutes : false,
+    showInactivePowerspots: enabled.powerspot ? showInactivePowerspots : defaults.showInactivePowerspots,
     groupByLayer,
   };
 }

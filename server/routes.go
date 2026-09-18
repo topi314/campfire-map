@@ -1,16 +1,27 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/topi314/campfire-export/server/campfire"
 	"github.com/topi314/campfire-export/server/kml"
 	"github.com/topi314/campfire-export/server/poi"
 	"github.com/topi314/campfire-export/server/s2cells"
+	"github.com/topi314/campfire-export/server/wayfarer"
+)
+
+const (
+	headerWayfarerSession = "X-Wayfarer-Session"
+	headerWayfarerXSRF    = "X-Wayfarer-XSRF"
 )
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -33,6 +44,15 @@ func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 	}
 	bbox = bbox.ClampSpan(s.cfg.Limits.MaxBBoxSpan)
 	types := parseTypes(r.URL.Query().Get("types"))
+	wantPowerspot := types == nil || types[poi.TypePowerspot]
+	wayCreds := wayfarerCreds(r)
+	useWayfarer := wayCreds.OK()
+
+	if wantPowerspot && (r.Header.Get(headerWayfarerSession) != "" || r.Header.Get(headerWayfarerXSRF) != "") && !useWayfarer {
+		http.Error(w, "Wayfarer requires both X-Wayfarer-Session and X-Wayfarer-XSRF", http.StatusBadRequest)
+		return
+	}
+
 	fetchCells, level, err := s2cells.CoverFirstFit(bbox, s.cfg.Limits.MaxCells, s2cells.Level15)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -49,19 +69,56 @@ func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 		cellIDs[i] = c.ID
 	}
 	tok := bearerToken(r)
+	dropTypes := campfire.DropTypesForToken(tok)
+	if useWayfarer {
+		dropTypes = campfire.DropTypesWithoutPowerspot()
+	}
 	key := strings.Join(cellIDs, ",") + ":" + campfire.CacheKeySuffix(tok)
-	var pois []poi.POI
-	if raw, ok := s.cache.Get(key); ok {
-		_ = json.Unmarshal(raw, &pois)
-	} else {
-		pois, err = s.client.Fetch(campfire.WithToken(r.Context(), tok), cellIDs, level)
-		if err != nil {
-			slog.Error("fetch pois", slog.Any("err", err))
-			http.Error(w, "failed to fetch map data: "+err.Error(), http.StatusBadGateway)
+	if useWayfarer {
+		key += ":nowayspot"
+	}
+
+	needWayfarer := useWayfarer && wantPowerspot
+	var pois, spots []poi.POI
+	var campErr, wayErr error
+
+	// Fetch Campfire GraphQL and Wayfarer mapview concurrently when both are needed.
+	// Same cache keys coalesce across concurrent users (singleflight inside the cache).
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		pois, campErr = s.loadCampfirePOIs(r, key, tok, cellIDs, level, dropTypes)
+	}()
+	if needWayfarer {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			spots, wayErr = s.fetchWayfarerPowerspots(r, bbox, wayCreds)
+		}()
+	}
+	wg.Wait()
+
+	if campErr != nil {
+		slog.Error("fetch pois", slog.Any("err", campErr))
+		http.Error(w, "failed to fetch map data: "+campErr.Error(), http.StatusBadGateway)
+		return
+	}
+	if wayErr != nil {
+		var authErr *wayfarer.AuthError
+		if errors.As(wayErr, &authErr) {
+			http.Error(w, "Wayfarer session rejected. Paste fresh SESSION and XSRF-TOKEN.", http.StatusUnauthorized)
 			return
 		}
-		if raw, err := json.Marshal(pois); err == nil {
-			s.cache.Set(key, raw)
+		slog.Error("fetch wayfarer powerspots", slog.Any("err", wayErr))
+		http.Error(w, "failed to fetch Wayfarer powerspots: "+wayErr.Error(), http.StatusBadGateway)
+		return
+	}
+
+	if useWayfarer {
+		pois = stripPowerspots(pois)
+		if wantPowerspot {
+			pois = append(pois, spots...)
 		}
 	}
 
@@ -83,6 +140,103 @@ func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 		"cellLevel": level,
 		"cells":     overlay,
 	})
+}
+
+func (s *Server) loadCampfirePOIs(r *http.Request, sharedKey, tok string, cellIDs []string, level int, dropTypes []string) ([]poi.POI, error) {
+	if raw, ok := s.cache.Get(sharedKey); ok {
+		var pois []poi.POI
+		if err := json.Unmarshal(raw, &pois); err == nil {
+			return pois, nil
+		}
+	}
+
+	// Coalesce duplicate in-flight requests per credential so one bad token
+	// cannot fail other users; successful tiles are published to sharedKey.
+	flightKey := sharedKey
+	if tok != "" {
+		flightKey = sharedKey + ":tok:" + shortHash(tok)
+	}
+	raw, err := s.cache.GetOrLoad(flightKey, func() ([]byte, error) {
+		if raw, ok := s.cache.Get(sharedKey); ok {
+			return raw, nil
+		}
+		pois, err := s.client.FetchWithDropTypes(campfire.WithToken(r.Context(), tok), cellIDs, level, dropTypes)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(pois)
+		if err != nil {
+			return nil, err
+		}
+		s.cache.Set(sharedKey, raw)
+		return raw, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var pois []poi.POI
+	if err := json.Unmarshal(raw, &pois); err != nil {
+		return nil, err
+	}
+	return pois, nil
+}
+
+func (s *Server) fetchWayfarerPowerspots(r *http.Request, bbox poi.BBox, creds wayfarer.Creds) ([]poi.POI, error) {
+	sharedKey := fmt.Sprintf("wayfarer:%g,%g,%g,%g", bbox.MinLat, bbox.MinLng, bbox.MaxLat, bbox.MaxLng)
+	if raw, ok := s.cache.Get(sharedKey); ok {
+		var pois []poi.POI
+		if err := json.Unmarshal(raw, &pois); err == nil {
+			return pois, nil
+		}
+	}
+
+	flightKey := sharedKey + ":cred:" + shortHash(creds.Session+"\n"+creds.XSRF)
+	raw, err := s.cache.GetOrLoad(flightKey, func() ([]byte, error) {
+		if raw, ok := s.cache.Get(sharedKey); ok {
+			return raw, nil
+		}
+		pois, err := s.wayfarer.FetchPowerspots(r.Context(), bbox, creds)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(pois)
+		if err != nil {
+			return nil, err
+		}
+		s.cache.Set(sharedKey, raw)
+		return raw, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var pois []poi.POI
+	if err := json.Unmarshal(raw, &pois); err != nil {
+		return nil, err
+	}
+	return pois, nil
+}
+
+func shortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:8])
+}
+
+func stripPowerspots(pois []poi.POI) []poi.POI {
+	out := make([]poi.POI, 0, len(pois))
+	for _, p := range pois {
+		if p.Type == poi.TypePowerspot || p.Type == "dynaspot" || p.Type == "dmax" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func wayfarerCreds(r *http.Request) wayfarer.Creds {
+	return wayfarer.Creds{
+		Session: strings.TrimSpace(r.Header.Get(headerWayfarerSession)),
+		XSRF:    strings.TrimSpace(r.Header.Get(headerWayfarerXSRF)),
+	}
 }
 
 type exportReq struct {
@@ -208,7 +362,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Wayfarer-Session,X-Wayfarer-XSRF")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
