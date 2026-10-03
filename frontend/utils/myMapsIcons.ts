@@ -19,26 +19,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function paintCampsiteBadge(ctx: CanvasRenderingContext2D, size: number, color: string) {
-  const r = Math.max(6, Math.round(size / 5));
-  const cx = size - r - 2;
-  const cy = size - r - 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = "#fff";
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(3, r - 2), 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-}
-
-async function svgToPng(
-  svgUrl: string,
-  color?: string,
-  flipX = false,
-  campsiteBadge = false,
-): Promise<Uint8Array> {
+async function svgToPng(svgUrl: string, color?: string, flipX = false): Promise<Uint8Array> {
   const svgText = await fetch(svgUrl).then((r) => {
     if (!r.ok) throw new Error(`Failed to fetch ${svgUrl}`);
     return r.text();
@@ -60,9 +41,6 @@ async function svgToPng(
     ctx.drawImage(img, 0, 0, ICON_SIZE, ICON_SIZE);
     if (flipX) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-    }
-    if (campsiteBadge && color) {
-      paintCampsiteBadge(ctx, ICON_SIZE, color);
     }
     const out = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG encode failed"))), "image/png");
@@ -119,19 +97,9 @@ export async function downloadMyMapsIconsZip() {
     files[`${type}.png`] = await rasterizeType(type);
   }
   files["powerspot-inactive.png"] = await svgToPng(INACTIVE_POWERSPOT.image, INACTIVE_POWERSPOT.color);
-  files["campsite_gym.png"] = await svgToPng(TYPE_META.gym.image, CAMPSITE_MARKER.color, false, true);
-  files["campsite_pokestop.png"] = await svgToPng(
-    TYPE_META.pokestop.image,
-    CAMPSITE_MARKER.color,
-    false,
-    true,
-  );
-  files["campsite_powerspot.png"] = await svgToPng(
-    TYPE_META.powerspot.image,
-    CAMPSITE_MARKER.color,
-    false,
-    true,
-  );
+  files["campsite_gym.png"] = await svgToPng(TYPE_META.gym.image, CAMPSITE_MARKER.color);
+  files["campsite_pokestop.png"] = await svgToPng(TYPE_META.pokestop.image, CAMPSITE_MARKER.color);
+  files["campsite_powerspot.png"] = await svgToPng(TYPE_META.powerspot.image, CAMPSITE_MARKER.color);
   files["route-end.png"] = await svgToPng(TYPE_META.route.image, ROUTE_COLORS.end, true);
 
   const zipped = zipSync(files);
