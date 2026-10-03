@@ -219,15 +219,10 @@ body {
   margin-top: 4px;
 }
 
-.poi-marker.campsite-pin {
-  outline: 2px solid #f0a202;
+.poi-marker.campsite-too-close {
+  outline: 2px solid #e74c3c;
   outline-offset: 2px;
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(240, 162, 2, 0.35);
-}
-
-.poi-marker.campsite-too-close {
-  outline-color: #e74c3c;
   box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.45);
 }
 

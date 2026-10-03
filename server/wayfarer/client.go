@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,8 +29,15 @@ func New(cfg Config) *Client {
 		cfg.MaxRetries = 3
 	}
 	return &Client{
-		url:     cfg.URL,
-		http:    &http.Client{Timeout: 25 * time.Second},
+		url: cfg.URL,
+		// Do not follow redirects: expired SESSION returns 302 → /login HTML,
+		// which would otherwise decode as "invalid character '<'".
+		http: &http.Client{
+			Timeout: 25 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		retries: cfg.MaxRetries,
 	}
 }
@@ -110,13 +118,41 @@ func (c *Client) roundTrip(ctx context.Context, bbox poi.BBox, creds Creds) ([]p
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusBadGateway {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+	if isWayfarerAuthFailure(resp, data) {
 		return nil, &AuthError{Status: resp.StatusCode, Body: truncate(data, 200)}
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("wayfarer http %s: %s", resp.Status, truncate(data, 400))
 	}
-	return parsePowerspots(data)
+	pois, err := parsePowerspots(data)
+	if err != nil {
+		slog.Error("wayfarer response decode failed",
+			slog.Int("status", resp.StatusCode),
+			slog.String("content_type", resp.Header.Get("Content-Type")),
+			slog.Int("body_bytes", len(data)),
+			slog.String("body", string(data)),
+			slog.Any("err", err),
+		)
+		return nil, err
+	}
+	return pois, nil
+}
+
+// Expired/missing SESSION yields 302 → /login (or HTML SPA) instead of 401 JSON.
+func isWayfarerAuthFailure(resp *http.Response, data []byte) bool {
+	switch resp.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return true
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		loc := strings.ToLower(resp.Header.Get("Location"))
+		return strings.Contains(loc, "login") || loc != ""
+	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if strings.Contains(ct, "text/html") {
+		return true
+	}
+	trim := strings.TrimSpace(string(data))
+	return strings.HasPrefix(trim, "<!DOCTYPE") || strings.HasPrefix(trim, "<html")
 }
 
 func isRetryable(err error) bool {
