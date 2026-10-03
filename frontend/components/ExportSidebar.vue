@@ -147,7 +147,7 @@
           type="checkbox"
           @change="onRadiusChange('wayfarer', ($event.target as HTMLInputElement).checked)"
         />
-        Show POI separation (30 m)
+        Min POI spacing (30 m)
       </label>
       <p v-if="placeTool && placeTool !== 'outline'" class="counts" style="margin-top: 6px">
         Tap the map to place. Too-close spots are marked in red (under 30 m).
@@ -360,7 +360,6 @@ const exporting = ref(false);
 const collapsedGroups = ref<Set<string>>(new Set());
 const fileInput = ref<HTMLInputElement | null>(null);
 const config = useRuntimeConfig();
-const { authHeaders, invalidateToken } = useSessionToken();
 
 const visiblePois = computed(() =>
   props.pois.filter((p) =>
@@ -513,7 +512,7 @@ async function exportBlob(settings: ExportSettings) {
   const pois = filterPoisForExport(allExportPois.value, settings);
   const res = await fetch(`${config.public.apiBase}/api/export`, {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name: settings.mapName,
       format: settings.format,
@@ -523,10 +522,6 @@ async function exportBlob(settings: ExportSettings) {
     }),
   });
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
-      invalidateToken();
-      throw new Error("Session token rejected. Paste a fresh Campfire token.");
-    }
     throw new Error(await res.text());
   }
   return res.blob();

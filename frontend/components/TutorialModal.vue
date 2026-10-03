@@ -24,8 +24,8 @@
         <li>Pan and zoom the map to load gyms, stops, routes, and more for the current view.</li>
         <li>Use the layer toggles to show or hide POI types. Search and the <strong>In view</strong> list help you find places — click a row to jump there.</li>
         <li>
-          <strong>Session token</strong> (Settings) is optional — only needed for Powerspots.
-          See Settings → <strong>How to get a token</strong> for simple steps.
+          <strong>Wayfarer login</strong> (Settings) is optional — only needed for Powerspots.
+          See Settings → <strong>How to get SESSION and XSRF-TOKEN</strong> for simple steps.
         </li>
         <li>
           <strong>Select for export:</strong> hold <kbd>Shift</kbd> and click a marker on the map, or <kbd>Shift</kbd>-click a row in <strong>In view</strong>.

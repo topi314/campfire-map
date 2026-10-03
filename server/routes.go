@@ -68,15 +68,9 @@ func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 	for i, c := range fetchCells {
 		cellIDs[i] = c.ID
 	}
-	tok := bearerToken(r)
-	dropTypes := campfire.DropTypesForToken(tok)
-	if useWayfarer {
-		dropTypes = campfire.DropTypesWithoutPowerspot()
-	}
-	key := strings.Join(cellIDs, ",") + ":" + campfire.CacheKeySuffix(tok)
-	if useWayfarer {
-		key += ":nowayspot"
-	}
+	// Campfire GraphQL is public (gyms/stops/routes). Powerspots come from Wayfarer only.
+	dropTypes := campfire.DropTypesWithoutPowerspot()
+	key := strings.Join(cellIDs, ",") + ":" + campfire.CacheKeySuffix()
 
 	needWayfarer := useWayfarer && wantPowerspot
 	var pois, spots []poi.POI
@@ -88,7 +82,7 @@ func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		pois, campErr = s.loadCampfirePOIs(r, key, tok, cellIDs, level, dropTypes)
+		pois, campErr = s.loadCampfirePOIs(r, key, cellIDs, level, dropTypes)
 	}()
 	if needWayfarer {
 		wg.Add(1)
@@ -115,11 +109,8 @@ func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if useWayfarer {
-		pois = stripPowerspots(pois)
-		if wantPowerspot {
-			pois = append(pois, spots...)
-		}
+	if needWayfarer {
+		pois = append(pois, spots...)
 	}
 
 	filtered := make([]poi.POI, 0, len(pois))
@@ -142,7 +133,7 @@ func (s *Server) getPOIs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) loadCampfirePOIs(r *http.Request, sharedKey, tok string, cellIDs []string, level int, dropTypes []string) ([]poi.POI, error) {
+func (s *Server) loadCampfirePOIs(r *http.Request, sharedKey string, cellIDs []string, level int, dropTypes []string) ([]poi.POI, error) {
 	if raw, ok := s.cache.Get(sharedKey); ok {
 		var pois []poi.POI
 		if err := json.Unmarshal(raw, &pois); err == nil {
@@ -150,17 +141,11 @@ func (s *Server) loadCampfirePOIs(r *http.Request, sharedKey, tok string, cellID
 		}
 	}
 
-	// Coalesce duplicate in-flight requests per credential so one bad token
-	// cannot fail other users; successful tiles are published to sharedKey.
-	flightKey := sharedKey
-	if tok != "" {
-		flightKey = sharedKey + ":tok:" + shortHash(tok)
-	}
-	raw, err := s.cache.GetOrLoad(flightKey, func() ([]byte, error) {
+	raw, err := s.cache.GetOrLoad(sharedKey, func() ([]byte, error) {
 		if raw, ok := s.cache.Get(sharedKey); ok {
 			return raw, nil
 		}
-		pois, err := s.client.FetchWithDropTypes(campfire.WithToken(r.Context(), tok), cellIDs, level, dropTypes)
+		pois, err := s.client.FetchWithDropTypes(r.Context(), cellIDs, level, dropTypes)
 		if err != nil {
 			return nil, err
 		}
@@ -219,17 +204,6 @@ func (s *Server) fetchWayfarerPowerspots(r *http.Request, bbox poi.BBox, creds w
 func shortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:8])
-}
-
-func stripPowerspots(pois []poi.POI) []poi.POI {
-	out := make([]poi.POI, 0, len(pois))
-	for _, p := range pois {
-		if p.Type == poi.TypePowerspot || p.Type == "dynaspot" || p.Type == "dmax" {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
 }
 
 func wayfarerCreds(r *http.Request) wayfarer.Creds {
@@ -319,14 +293,6 @@ type httpError struct{ s string }
 
 func (e *httpError) Error() string { return e.s }
 
-func bearerToken(r *http.Request) string {
-	h := strings.TrimSpace(r.Header.Get("Authorization"))
-	if len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
-		return strings.TrimSpace(h[7:])
-	}
-	return h
-}
-
 func matchesAnyType(p poi.POI, types map[poi.Type]bool) bool {
 	for t := range types {
 		if p.MatchesType(t) {
@@ -366,7 +332,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Wayfarer-Session,X-Wayfarer-XSRF")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,X-Wayfarer-Session,X-Wayfarer-XSRF")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

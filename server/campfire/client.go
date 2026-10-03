@@ -18,37 +18,20 @@ import (
 //go:embed queries/map_objects_by_s2_cells.graphql
 var queryMapByS2Cells string
 
-var pgoDropTypesAuthed = []string{
-	"PGO_GYM",
-	"PGO_POWERSPOT",
-	"PGO_POKESTOP",
-	"PGO_ROUTE",
-}
-
 var pgoDropTypesPublic = []string{
 	"PGO_GYM",
 	"PGO_POKESTOP",
 	"PGO_ROUTE",
 }
 
-// DropTypesForToken returns Campfire drop types. Powerspots require a bearer token.
-func DropTypesForToken(token string) []string {
-	if strings.TrimSpace(token) != "" {
-		return append([]string(nil), pgoDropTypesAuthed...)
-	}
-	return append([]string(nil), pgoDropTypesPublic...)
-}
-
 // DropTypesWithoutPowerspot returns gym/stop/route types (no PGO_POWERSPOT).
+// Powerspots are loaded from Wayfarer instead.
 func DropTypesWithoutPowerspot() []string {
 	return append([]string(nil), pgoDropTypesPublic...)
 }
 
-// CacheKeySuffix distinguishes authed vs public tile caches.
-func CacheKeySuffix(token string) string {
-	if strings.TrimSpace(token) != "" {
-		return "authed"
-	}
+// CacheKeySuffix is the shared Campfire tile cache key suffix (public GraphQL only).
+func CacheKeySuffix() string {
 	return "public"
 }
 
@@ -97,7 +80,7 @@ type gqlResp struct {
 }
 
 func (c *Client) Fetch(ctx context.Context, cellIDs []string, level int) ([]poi.POI, error) {
-	return c.FetchWithDropTypes(ctx, cellIDs, level, DropTypesForToken(tokenFor(ctx)))
+	return c.FetchWithDropTypes(ctx, cellIDs, level, DropTypesWithoutPowerspot())
 }
 
 // FetchWithDropTypes loads map objects using the given PGO drop types.
@@ -105,7 +88,7 @@ func (c *Client) FetchWithDropTypes(ctx context.Context, cellIDs []string, level
 	// Campfire returns full POI details at S2 level 15.
 	level = 15
 	if len(dropTypes) == 0 {
-		dropTypes = DropTypesForToken(tokenFor(ctx))
+		dropTypes = DropTypesWithoutPowerspot()
 	}
 	raw, err := c.do(ctx, queryMapByS2Cells, c.mapByS2CellsVars(cellIDs, level, dropTypes))
 	if err != nil {
@@ -171,9 +154,6 @@ func (c *Client) roundTrip(ctx context.Context, query string, vars map[string]an
 	if name := operationName(query); name != "" {
 		req.Header.Set("X-APOLLO-OPERATION-NAME", name)
 	}
-	if tok := tokenFor(ctx); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -213,22 +193,6 @@ func (c *Client) roundTrip(ctx context.Context, query string, vars map[string]an
 		return nil, fmt.Errorf("empty graphql data")
 	}
 	return parsed.Data, nil
-}
-
-type tokenCtxKey struct{}
-
-// WithToken attaches a per-request Campfire/Pokémon GO bearer token.
-func WithToken(ctx context.Context, token string) context.Context {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, tokenCtxKey{}, token)
-}
-
-func tokenFor(ctx context.Context) string {
-	t, _ := ctx.Value(tokenCtxKey{}).(string)
-	return t
 }
 
 func operationName(query string) string {

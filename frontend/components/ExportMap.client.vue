@@ -10,13 +10,10 @@
   >
     <SettingsModal
       :open="settingsOpen"
-      :token="token"
       :wayfarer-enabled="wayfarerEnabled"
       :wayfarer-session="wayfarerSession"
       :wayfarer-xsrf="wayfarerXsrf"
       @close="closeSettings"
-      @save="onTokenSave"
-      @clear="onTokenClear"
       @save-wayfarer="onWayfarerSave"
       @clear-wayfarer="onWayfarerClear"
     />
@@ -143,8 +140,7 @@ import { attachExportGestures, attachLongPress, eventHasShift } from "~/utils/ex
 import { findNearbyPoi, pointInPolygon } from "~/utils/proximity";
 
 const config = useRuntimeConfig();
-const { token, settingsOpen, save, openSettings, closeSettings, clearToken, invalidateToken, authHeaders } =
-  useSessionToken();
+const { settingsOpen, openSettings, closeSettings } = useSettings();
 const {
   enabled: wayfarerEnabled,
   session: wayfarerSession,
@@ -215,7 +211,7 @@ function displayType(p: Poi) {
 }
 
 function canLoadPowerspots() {
-  return !!token.value || wayfarerReady.value;
+  return wayfarerReady.value;
 }
 
 function persistUiSettings() {
@@ -950,7 +946,7 @@ function visibleMapPois(desired?: Map<string, Poi>): Map<string, Poi> {
   return source;
 }
 
-/** POI separation uses selection; lure/interaction use POIs currently on the map. */
+/** Min POI spacing uses selection; lure/interaction use POIs currently on the map. */
 function radiusSourceFor(def: RadiusOverlayDef, desired?: Map<string, Poi>): Map<string, Poi> {
   if (def.id === "wayfarer") return selectedAndCampsitePois();
   return visibleMapPois(desired);
@@ -1165,35 +1161,13 @@ function onRequestPowerspotAuth() {
   openSettings();
 }
 
-async function onTokenSave(next: string) {
-  if (!save(next)) return;
-  // Mutual exclusive: Campfire login disables Wayfarer.
-  clearWayfarer();
-  if (pendingPowerspotEnable) {
-    pendingPowerspotEnable = false;
-    enabled.value = { ...enabled.value, powerspot: true };
-  }
-  closeSettings();
-  await loadPois();
-}
-
-function onTokenClear() {
-  clearToken();
-  if (!wayfarerReady.value) {
-    disablePowerspotLayer();
-  }
-  scheduleLoad();
-}
-
 function onWayfarerSave(payload: { enabled: boolean; session: string; xsrfToken: string }) {
   if (!saveWayfarer(payload)) return;
-  // Mutual exclusive: Wayfarer login clears Campfire token.
-  clearToken();
   if (pendingPowerspotEnable && wayfarerReady.value) {
     pendingPowerspotEnable = false;
     enabled.value = { ...enabled.value, powerspot: true };
   }
-  if (!payload.enabled && !token.value) {
+  if (!payload.enabled) {
     disablePowerspotLayer();
   }
   closeSettings();
@@ -1202,9 +1176,7 @@ function onWayfarerSave(payload: { enabled: boolean; session: string; xsrfToken:
 
 function onWayfarerClear() {
   clearWayfarer();
-  if (!token.value) {
-    disablePowerspotLayer();
-  }
+  disablePowerspotLayer();
   scheduleLoad();
 }
 
@@ -1263,22 +1235,14 @@ async function loadPois() {
     const types = requestTypes().join(",");
     const res = await fetch(
       `${config.public.apiBase}/api/pois?bbox=${encodeURIComponent(bbox)}&types=${encodeURIComponent(types)}`,
-      { headers: wayfarerHeaders(authHeaders()) },
+      { headers: wayfarerHeaders() },
     );
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
-        const msg = await res.text();
-        if (/wayfarer/i.test(msg)) {
-          invalidateWayfarer();
-          enabled.value = { ...enabled.value, powerspot: false };
-          openSettings();
-          throw new Error("Wayfarer session rejected. Paste fresh SESSION and XSRF-TOKEN.");
-        }
-        invalidateToken();
-        if (!wayfarerReady.value) {
-          enabled.value = { ...enabled.value, powerspot: false };
-        }
-        throw new Error("Session token rejected. Paste a fresh Campfire token.");
+        invalidateWayfarer();
+        enabled.value = { ...enabled.value, powerspot: false };
+        openSettings();
+        throw new Error("Wayfarer session rejected. Paste fresh SESSION and XSRF-TOKEN.");
       }
       throw new Error(await res.text());
     }

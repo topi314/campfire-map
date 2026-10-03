@@ -247,7 +247,7 @@ const emit = defineEmits<{
   "request-powerspot-auth": [];
 }>();
 
-const { openSettings, token } = useSessionToken();
+const { openSettings } = useSettings();
 const { ready: wayfarerReady } = useWayfarerCredentials();
 const { openTutorial } = useTutorial();
 
@@ -260,7 +260,7 @@ const showInactivePowerspots = defineModel<boolean>("showInactivePowerspots", { 
 const groupByLayer = defineModel<boolean>("groupByLayer", { required: true });
 const radiusOverlays = defineModel<RadiusOverlayState>("radiusOverlays", { required: true });
 
-const canLoadPowerspots = computed(() => !!token.value || wayfarerReady.value);
+const canLoadPowerspots = computed(() => wayfarerReady.value);
 
 const layerTypes = LAYER_TYPES;
 const radiusOverlayDefs = MAP_RADIUS_OVERLAYS;

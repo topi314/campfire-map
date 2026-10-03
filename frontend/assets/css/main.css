@@ -330,19 +330,6 @@ body {
   margin: 0 0 8px;
 }
 
-.auth-source-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  margin: 8px 0 10px;
-}
-
-.auth-source-hint {
-  color: var(--muted);
-  font-weight: 400;
-  font-size: 0.9em;
-}
-
 .settings-status {
   margin: 0 0 12px;
 }
@@ -1371,7 +1358,10 @@ input.token-input:disabled,
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .sheet-tabs {
@@ -1380,6 +1370,10 @@ input.token-input:disabled,
     padding: 0 12px 8px;
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--panel);
   }
 
   .sheet-tabs button {
@@ -1388,11 +1382,24 @@ input.token-input:disabled,
 
   .sidebar {
     border-left: none;
-    flex: 1;
+    flex: 0 0 auto;
     min-height: 0;
     height: auto;
+    overflow: visible;
     grid-column: auto;
     grid-row: auto;
+  }
+
+  .bottom-sheet .sidebar-inner {
+    overflow: visible;
+    flex: none;
+    height: auto;
+  }
+
+  .bottom-sheet .poi-lists,
+  .bottom-sheet .poi-list-section {
+    flex: none;
+    min-height: auto;
   }
 
   .panel-explore,
@@ -1409,7 +1416,10 @@ input.token-input:disabled,
     display: none;
   }
 
+  /* Single scroll container: the sheet body, not nested POI lists */
   .bottom-sheet .poi-list {
-    overflow: auto;
+    overflow: visible;
+    flex: none;
+    min-height: auto;
   }
 }

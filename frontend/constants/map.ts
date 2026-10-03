@@ -32,7 +32,7 @@ export interface RadiusOverlayDef {
 export const EXPORT_RADIUS_OVERLAYS: RadiusOverlayDef[] = [
   {
     id: "wayfarer",
-    label: "POI separation",
+    label: "Min POI spacing",
     meters: WAYFARER_MIN_SEPARATION_M,
     color: "#e74c3c",
     types: null,
