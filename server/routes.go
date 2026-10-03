@@ -240,9 +240,11 @@ func wayfarerCreds(r *http.Request) wayfarer.Creds {
 }
 
 type exportReq struct {
-	Name   string    `json:"name"`
-	Format string    `json:"format"`
-	POIs   []poi.POI `json:"pois"`
+	Name    string           `json:"name"`
+	Format  string           `json:"format"`
+	POIs    []poi.POI        `json:"pois"`
+	Outline [][2]float64     `json:"outline,omitempty"`
+	Layers  []kml.ExportLayer `json:"layers,omitempty"`
 }
 
 func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
@@ -252,7 +254,8 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if len(req.POIs) == 0 {
+	hasOutline := len(req.Outline) >= 3
+	if len(req.POIs) == 0 && !hasOutline {
 		http.Error(w, "no pois selected", http.StatusBadRequest)
 		return
 	}
@@ -264,6 +267,7 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "kmz"
 	}
+	opts := kml.ExportOptions{Layers: req.Layers, Outline: req.Outline}
 	var (
 		data     []byte
 		err      error
@@ -272,11 +276,11 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 	)
 	switch format {
 	case "kml":
-		data, err = kml.BuildKML(req.Name, req.POIs)
+		data, err = kml.BuildKML(req.Name, req.POIs, opts)
 		filename = "pogo-export.kml"
 		ctype = "application/vnd.google-earth.kml+xml"
 	case "kmz":
-		data, err = kml.BuildKMZ(req.Name, req.POIs)
+		data, err = kml.BuildKMZ(req.Name, req.POIs, opts)
 		filename = "pogo-export.kmz"
 		ctype = "application/vnd.google-earth.kmz"
 	default:

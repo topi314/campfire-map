@@ -3,23 +3,33 @@
     class="type-icon"
     :class="{ 'type-icon-glyph': useMask }"
     :style="useMask ? glyphStyle : undefined"
-    :title="TYPE_META[type].label"
+    :title="title"
   >
     <img v-if="!useMask" :src="src" alt="" />
   </span>
 </template>
 
 <script setup lang="ts">
-import { TYPE_META, type PoiType } from "~/types/poi";
+import { CAMPSITE_MARKER, TYPE_META, type PoiType } from "~/types/poi";
 
-const props = defineProps<{
-  type: PoiType;
-}>();
+const props = withDefaults(
+  defineProps<{
+    type: PoiType;
+    /** When true, use amber campsite tint instead of the live POI color. */
+    campsite?: boolean;
+    color?: string;
+  }>(),
+  { campsite: false },
+);
 
 const src = computed(() => TYPE_META[props.type].image);
-const useMask = computed(() => props.type !== "super_mega_gym");
+const useMask = computed(() => props.type !== "super_mega_gym" || props.campsite);
+const title = computed(() =>
+  props.campsite ? `Planned ${TYPE_META[props.type].label}` : TYPE_META[props.type].label,
+);
 const glyphStyle = computed(() => ({
-  backgroundColor: TYPE_META[props.type].color,
+  backgroundColor:
+    props.color ?? (props.campsite ? CAMPSITE_MARKER.color : TYPE_META[props.type].color),
   WebkitMaskImage: `url(${src.value})`,
   maskImage: `url(${src.value})`,
 }));

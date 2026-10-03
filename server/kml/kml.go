@@ -19,12 +19,6 @@ const (
 	iconScale    = "1"
 )
 
-// Folder keys so each My Maps layer can use Uniform style (one styleUrl per folder).
-const (
-	folderRoutePaths = "route-paths"
-	folderRouteEnds  = "route-ends"
-)
-
 type kmlRoot struct {
 	XMLName  xml.Name `xml:"kml"`
 	Xmlns    string   `xml:"xmlns,attr"`
@@ -39,10 +33,11 @@ type document struct {
 }
 
 type style struct {
-	ID         string      `xml:"id,attr"`
-	IconStyle  *iconStyle  `xml:"IconStyle,omitempty"`
-	LabelStyle *labelStyle `xml:"LabelStyle,omitempty"`
-	LineStyle  *lineStyle  `xml:"LineStyle,omitempty"`
+	ID          string       `xml:"id,attr"`
+	IconStyle   *iconStyle   `xml:"IconStyle,omitempty"`
+	LabelStyle  *labelStyle  `xml:"LabelStyle,omitempty"`
+	LineStyle   *lineStyle   `xml:"LineStyle,omitempty"`
+	PolyStyle   *polyStyle   `xml:"PolyStyle,omitempty"`
 }
 
 type iconStyle struct {
@@ -71,6 +66,12 @@ type lineStyle struct {
 	Width int    `xml:"width"`
 }
 
+type polyStyle struct {
+	Color   string `xml:"color"`
+	Fill    int    `xml:"fill"`
+	Outline int    `xml:"outline"`
+}
+
 type styleMap struct {
 	ID   string      `xml:"id,attr"`
 	Pair []stylePair `xml:"Pair"`
@@ -88,11 +89,12 @@ type folder struct {
 }
 
 type placemark struct {
-	Name        string `xml:"name"`
-	Description string `xml:"description"`
-	StyleURL    string `xml:"styleUrl"`
-	Point       *point `xml:"Point,omitempty"`
-	LineString  *line  `xml:"LineString,omitempty"`
+	Name        string   `xml:"name"`
+	Description string   `xml:"description"`
+	StyleURL    string   `xml:"styleUrl"`
+	Point       *point   `xml:"Point,omitempty"`
+	LineString  *line    `xml:"LineString,omitempty"`
+	Polygon     *polygon `xml:"Polygon,omitempty"`
 }
 
 type point struct {
@@ -104,14 +106,66 @@ type line struct {
 	Coordinates string `xml:"coordinates"`
 }
 
-func BuildKMZ(name string, pois []poi.POI) ([]byte, error) {
-	refs := map[string]string{}
-	for _, t := range poi.AllTypes() {
-		refs[string(t)] = "files/" + string(t) + ".png"
-	}
-	refs["route-end"] = "files/route-end.png"
+type polygon struct {
+	OuterBoundaryIs outerBoundary `xml:"outerBoundaryIs"`
+}
 
-	payload, err := buildKMLXML(name, pois, refs)
+type outerBoundary struct {
+	LinearRing linearRing `xml:"LinearRing"`
+}
+
+type linearRing struct {
+	Coordinates string `xml:"coordinates"`
+}
+
+func iconRefsForExport(inline bool) (map[string]string, map[string][]byte, error) {
+	refs := map[string]string{}
+	files := map[string][]byte{}
+	for _, t := range poi.AllTypes() {
+		pngBytes, err := iconPNG(t)
+		if err != nil {
+			return nil, nil, err
+		}
+		key := string(t)
+		files[key] = pngBytes
+		if inline {
+			refs[key] = dataURI(pngBytes)
+		} else {
+			refs[key] = "files/" + key + ".png"
+		}
+	}
+	endPNG, err := routeEndPNG()
+	if err != nil {
+		return nil, nil, err
+	}
+	files["route-end"] = endPNG
+	if inline {
+		refs["route-end"] = dataURI(endPNG)
+	} else {
+		refs["route-end"] = "files/route-end.png"
+	}
+	for key := range campsiteIconBases {
+		pngBytes, err := campsiteIconPNG(key)
+		if err != nil {
+			return nil, nil, err
+		}
+		files[key] = pngBytes
+		if inline {
+			refs[key] = dataURI(pngBytes)
+		} else {
+			refs[key] = "files/" + key + ".png"
+		}
+	}
+	return refs, files, nil
+}
+
+func BuildKMZ(name string, pois []poi.POI, opts ExportOptions) ([]byte, error) {
+	refs, files, err := iconRefsForExport(false)
+	if err != nil {
+		return nil, err
+	}
+
+	payload, err := buildKMLXML(name, pois, refs, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -129,29 +183,14 @@ func BuildKMZ(name string, pois []poi.POI) ([]byte, error) {
 		return nil, err
 	}
 
-	for _, t := range poi.AllTypes() {
-		pngBytes, err := iconPNG(t)
-		if err != nil {
-			return nil, err
-		}
-		w, err := zw.Create("files/" + string(t) + ".png")
+	for key, pngBytes := range files {
+		w, err := zw.Create("files/" + key + ".png")
 		if err != nil {
 			return nil, err
 		}
 		if _, err := w.Write(pngBytes); err != nil {
 			return nil, err
 		}
-	}
-	endPNG, err := routeEndPNG()
-	if err != nil {
-		return nil, err
-	}
-	w, err := zw.Create("files/route-end.png")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.Write(endPNG); err != nil {
-		return nil, err
 	}
 
 	if err := zw.Close(); err != nil {
@@ -161,22 +200,13 @@ func BuildKMZ(name string, pois []poi.POI) ([]byte, error) {
 }
 
 // BuildKML returns a standalone KML document with icons inlined as data URIs.
-func BuildKML(name string, pois []poi.POI) ([]byte, error) {
-	refs := map[string]string{}
-	for _, t := range poi.AllTypes() {
-		pngBytes, err := iconPNG(t)
-		if err != nil {
-			return nil, err
-		}
-		refs[string(t)] = dataURI(pngBytes)
-	}
-	endPNG, err := routeEndPNG()
+func BuildKML(name string, pois []poi.POI, opts ExportOptions) ([]byte, error) {
+	refs, _, err := iconRefsForExport(true)
 	if err != nil {
 		return nil, err
 	}
-	refs["route-end"] = dataURI(endPNG)
 
-	payload, err := buildKMLXML(name, pois, refs)
+	payload, err := buildKMLXML(name, pois, refs, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -188,38 +218,72 @@ func dataURI(png []byte) string {
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
 }
 
-func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string) ([]byte, error) {
+func defaultLayers() []ExportLayer {
+	return []ExportLayer{
+		{Name: "Existing", Types: []string{"gym", "pokestop", "powerspot"}},
+		{Name: "Play Area", Types: []string{"outline"}},
+		{Name: "Campsite", Types: []string{"campsite_gym", "campsite_pokestop", "campsite_powerspot"}},
+	}
+}
+
+func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string, opts ExportOptions) ([]byte, error) {
 	if name == "" {
 		name = "Pokémon GO map"
 	}
 	doc := document{Name: name}
 	doc.Styles, doc.StyleMaps = sharedStyles(iconRefs)
 
-	// One styleUrl per folder so My Maps imports layers as Uniform style.
-	buckets := map[string][]placemark{}
-	for _, p := range pois {
-		for key, m := range placemarksByFolder(p) {
-			buckets[key] = append(buckets[key], m)
+	layers := opts.Layers
+	if len(layers) == 0 {
+		layers = defaultLayers()
+	}
+
+	typeToLayer := map[string]int{}
+	for i, layer := range layers {
+		for _, t := range layer.Types {
+			if _, exists := typeToLayer[t]; !exists {
+				typeToLayer[t] = i
+			}
 		}
 	}
-	for _, key := range folderOrder() {
-		items := buckets[key]
+
+	buckets := make([][]placemark, len(layers))
+	for _, p := range pois {
+		key := p.LayerTypeKey()
+		idx, ok := typeToLayer[key]
+		if !ok {
+			continue
+		}
+		buckets[idx] = append(buckets[idx], placemarksForPOI(p)...)
+	}
+
+	if len(opts.Outline) >= 3 {
+		if idx, ok := typeToLayer["outline"]; ok {
+			buckets[idx] = append(buckets[idx], outlinePlacemark(opts.Outline))
+		}
+	}
+
+	for i, layer := range layers {
+		items := buckets[i]
 		if len(items) == 0 {
 			continue
 		}
-		baseName := folderLabel(key)
-		for i := 0; i < len(items); i += featuresPerFolder {
-			end := i + featuresPerFolder
+		baseName := layer.Name
+		if strings.TrimSpace(baseName) == "" {
+			baseName = fmt.Sprintf("Layer %d", i+1)
+		}
+		for j := 0; j < len(items); j += featuresPerFolder {
+			end := j + featuresPerFolder
 			if end > len(items) {
 				end = len(items)
 			}
 			fname := baseName
-			if i > 0 {
-				fname = fmt.Sprintf("%s %d", baseName, i/featuresPerFolder+1)
+			if j > 0 {
+				fname = fmt.Sprintf("%s %d", baseName, j/featuresPerFolder+1)
 			}
 			doc.Folder = append(doc.Folder, folder{
 				Name:       fname,
-				Placemarks: items[i:end],
+				Placemarks: items[j:end],
 			})
 		}
 	}
@@ -230,97 +294,57 @@ func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string) ([]byt
 	}, "", "  ")
 }
 
-func folderOrder() []string {
-	keys := make([]string, 0, len(poi.FolderTypes())+2)
-	for _, t := range poi.FolderTypes() {
-		keys = append(keys, string(t))
-	}
-	keys = append(keys, folderRoutePaths, folderRouteEnds)
-	return keys
-}
-
-func folderLabel(key string) string {
-	switch key {
-	case folderRoutePaths:
-		return "Route paths"
-	case folderRouteEnds:
-		return "Route ends"
-	default:
-		return poi.Type(key).Label()
-	}
-}
-
 func sharedStyles(iconRefs map[string]string) ([]style, []styleMap) {
 	var styles []style
+	// My Maps imports StyleMap poorly for custom icons; use a single shared Style per type.
 	var maps []styleMap
 	centerHot := hotSpot{X: "0.5", Y: "0.5", XUnits: "fraction", YUnits: "fraction"}
 
-	iconStyleMap := func(id, href string, showLabelOnHighlight bool) {
-		normalLabel := "0"
-		highlightLabel := "0"
-		if showLabelOnHighlight {
-			highlightLabel = "1"
-		}
-		styles = append(styles,
-			style{
-				ID: id + "-normal",
-				IconStyle: &iconStyle{
-					Scale:   iconScale,
-					Icon:    icon{Href: href},
-					HotSpot: centerHot,
-				},
-				LabelStyle: &labelStyle{Scale: normalLabel},
-			},
-			style{
-				ID: id + "-highlight",
-				IconStyle: &iconStyle{
-					Scale:   iconScale,
-					Icon:    icon{Href: href},
-					HotSpot: centerHot,
-				},
-				LabelStyle: &labelStyle{Scale: highlightLabel},
-			},
-		)
-		maps = append(maps, styleMap{
+	addIconStyle := func(id, href string) {
+		styles = append(styles, style{
 			ID: id,
-			Pair: []stylePair{
-				{Key: "normal", StyleURL: "#" + id + "-normal"},
-				{Key: "highlight", StyleURL: "#" + id + "-highlight"},
+			IconStyle: &iconStyle{
+				Scale:   iconScale,
+				Icon:    icon{Href: href},
+				HotSpot: centerHot,
 			},
+			LabelStyle: &labelStyle{Scale: "0"},
 		})
 	}
 
 	for _, t := range poi.AllTypes() {
 		id := string(t)
-		iconStyleMap(id, iconRefs[id], true)
+		addIconStyle(id, iconRefs[id])
+	}
+	for key := range campsiteIconBases {
+		addIconStyle(key, iconRefs[key])
 	}
 
-	styles = append(styles,
-		style{
-			ID:        "route-line-normal",
-			LineStyle: &lineStyle{Color: routeLineKML, Width: 4},
-		},
-		style{
-			ID:        "route-line-highlight",
-			LineStyle: &lineStyle{Color: routeLineKML, Width: 6},
-		},
-	)
-	maps = append(maps, styleMap{
-		ID: "route-line",
-		Pair: []stylePair{
-			{Key: "normal", StyleURL: "#route-line-normal"},
-			{Key: "highlight", StyleURL: "#route-line-highlight"},
-		},
+	styles = append(styles, style{
+		ID:        "route-line",
+		LineStyle: &lineStyle{Color: routeLineKML, Width: 4},
 	})
 
-	iconStyleMap("route-end", iconRefs["route-end"], false)
+	addIconStyle("route-end", iconRefs["route-end"])
+
+	styles = append(styles, style{
+		ID:        "outline",
+		LineStyle: &lineStyle{Color: "ff8cff5b", Width: 3},
+		PolyStyle: &polyStyle{Color: "405b8cff", Fill: 1, Outline: 1},
+	})
+
 	return styles, maps
 }
 
-// placemarksByFolder returns placemarks keyed by folder. Each folder uses a single styleUrl
-// so My Maps can apply Uniform style per layer.
-func placemarksByFolder(p poi.POI) map[string]placemark {
-	desc := fmt.Sprintf("%s<br/>%.6f, %.6f", p.Name, p.Lat, p.Lng)
+// placemarksForPOI returns one or more placemarks. Routes keep start, path, and end together
+// (caller places them in the same folder). Styles are shared by POI type in the KML file;
+// My Maps typically imports them as individual styles per feature — that's fine.
+func placemarksForPOI(p poi.POI) []placemark {
+	desc := fmt.Sprintf("%s · %.6f, %.6f", p.Type.Label(), p.Lat, p.Lng)
+	if p.IsCampsite() {
+		desc = "Campsite " + desc
+	}
+	styleID := p.LayerTypeKey()
 	if p.Type == poi.TypeRoute && len(p.Path) > 1 {
 		coords := make([]string, 0, len(p.Path))
 		for _, pt := range p.Path {
@@ -328,20 +352,20 @@ func placemarksByFolder(p poi.POI) map[string]placemark {
 		}
 		start := p.Path[0]
 		endPt := p.Path[len(p.Path)-1]
-		return map[string]placemark{
-			string(poi.TypeRoute): {
+		return []placemark{
+			{
 				Name:        p.Name,
 				Description: desc,
 				StyleURL:    "#route",
 				Point:       &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", start[1], start[0])},
 			},
-			folderRoutePaths: {
+			{
 				Name:        p.Name,
 				Description: desc,
 				StyleURL:    "#route-line",
 				LineString:  &line{Tessellate: 1, Coordinates: strings.Join(coords, " ")},
 			},
-			folderRouteEnds: {
+			{
 				Name:        p.Name + " (end)",
 				Description: desc,
 				StyleURL:    "#route-end",
@@ -349,12 +373,32 @@ func placemarksByFolder(p poi.POI) map[string]placemark {
 			},
 		}
 	}
-	return map[string]placemark{
-		string(p.Type.FolderType()): {
-			Name:        p.Name,
-			Description: desc,
-			StyleURL:    "#" + string(p.Type.FolderType()),
-			Point:       &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", p.Lng, p.Lat)},
+	return []placemark{{
+		Name:        p.Name,
+		Description: desc,
+		StyleURL:    "#" + styleID,
+		Point:       &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", p.Lng, p.Lat)},
+	}}
+}
+
+func outlinePlacemark(ring [][2]float64) placemark {
+	coords := make([]string, 0, len(ring)+1)
+	for _, pt := range ring {
+		coords = append(coords, fmt.Sprintf("%.7f,%.7f,0", pt[1], pt[0]))
+	}
+	first := ring[0]
+	last := ring[len(ring)-1]
+	if first[0] != last[0] || first[1] != last[1] {
+		coords = append(coords, fmt.Sprintf("%.7f,%.7f,0", first[1], first[0]))
+	}
+	return placemark{
+		Name:        "Draw area",
+		Description: "Planned campsite area",
+		StyleURL:    "#outline",
+		Polygon: &polygon{
+			OuterBoundaryIs: outerBoundary{
+				LinearRing: linearRing{Coordinates: strings.Join(coords, " ")},
+			},
 		},
 	}
 }

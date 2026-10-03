@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar">
+  <div class="sidebar-inner">
     <div class="sidebar-header">
       <div class="sidebar-header-text">
         <h1>Pokémon GO map</h1>
@@ -8,11 +8,12 @@
       <div class="sidebar-header-actions">
         <button
           type="button"
-          class="sidebar-export"
+          class="sidebar-export btn-with-icon"
           :class="{ primary: exportMode }"
           :title="exportMode ? 'Close export panel' : 'Export to Google My Maps'"
           @click="exportMode = !exportMode"
         >
+          <UiIcon :name="exportMode ? 'cancel' : 'export'" />
           {{ exportMode ? "Exit" : "Export" }}
           <span class="counts">({{ selected.size }})</span>
         </button>
@@ -87,6 +88,30 @@
           <span class="cell-toggle-icon" aria-hidden="true" />
           S2 cells
           <span class="counts">({{ cellLabel }})</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="section" :class="{ 'section-collapsed': collapsedSections.has('ranges') }">
+      <button
+        type="button"
+        class="section-toggle"
+        :aria-expanded="!collapsedSections.has('ranges')"
+        @click="toggleSection('ranges')"
+      >
+        <span class="section-chevron" aria-hidden="true" />
+        Ranges
+      </button>
+      <div v-show="!collapsedSections.has('ranges')" class="section-body">
+        <label v-for="r in radiusOverlayDefs" :key="r.id" class="filter">
+          <input
+            :checked="radiusOverlays[r.id]"
+            type="checkbox"
+            @change="onRadiusChange(r.id, ($event.target as HTMLInputElement).checked)"
+          />
+          <span class="radius-swatch" :style="{ background: r.color }" aria-hidden="true" />
+          {{ r.label }}
+          <span class="counts">({{ r.meters }} m)</span>
         </label>
       </div>
     </div>
@@ -183,10 +208,15 @@
     </div>
 
     <div class="status" :class="{ error: !!error }">{{ status }}</div>
-  </aside>
+  </div>
 </template>
 
 <script setup lang="ts">
+import {
+  MAP_RADIUS_OVERLAYS,
+  type RadiusOverlayId,
+  type RadiusOverlayState,
+} from "~/constants/map";
 import {
   LAYER_TYPES,
   TYPE_META,
@@ -201,7 +231,7 @@ import {
 } from "~/types/poi";
 import { LONG_PRESS_MS } from "~/utils/exportGesture";
 
-type SidebarSection = "baseMap" | "layers" | "inView";
+type SidebarSection = "baseMap" | "layers" | "ranges" | "inView";
 
 const props = defineProps<{
   pois: Poi[];
@@ -228,10 +258,12 @@ const exportMode = defineModel<boolean>("exportMode", { required: true });
 const showAllRoutes = defineModel<boolean>("showAllRoutes", { required: true });
 const showInactivePowerspots = defineModel<boolean>("showInactivePowerspots", { required: true });
 const groupByLayer = defineModel<boolean>("groupByLayer", { required: true });
+const radiusOverlays = defineModel<RadiusOverlayState>("radiusOverlays", { required: true });
 
 const canLoadPowerspots = computed(() => !!token.value || wayfarerReady.value);
 
 const layerTypes = LAYER_TYPES;
+const radiusOverlayDefs = MAP_RADIUS_OVERLAYS;
 const cellLabel = computed(() => {
   const parts: string[] = [];
   if (props.l14Count > 0) parts.push(`L14 · ${props.l14Count}`);
@@ -370,5 +402,9 @@ function onLayerChange(t: PoiType, checked: boolean) {
   if (t === "powerspot" && !checked) {
     showInactivePowerspots.value = true;
   }
+}
+
+function onRadiusChange(id: RadiusOverlayId, checked: boolean) {
+  radiusOverlays.value = { ...radiusOverlays.value, [id]: checked };
 }
 </script>

@@ -19,6 +19,8 @@ export interface Poi {
   superMegaEligible?: boolean;
   /** Set for Wayfarer powerspots. */
   status?: PowerspotStatus | string;
+  /** Planned campsite POI (not from Campfire/Wayfarer). */
+  source?: "campsite";
 }
 
 export const TYPE_META: Record<
@@ -44,6 +46,12 @@ export const INACTIVE_POWERSPOT = {
   image: "/images/pgo-powerspot.svg",
 };
 
+/** Planned campsite POIs — same glyphs, distinct amber tint. */
+export const CAMPSITE_MARKER = {
+  label: "Planned",
+  color: "#f0a202",
+};
+
 /** Route line and endpoint colors (official map). */
 export const ROUTE_COLORS = {
   line: "#3da0ff",
@@ -64,6 +72,14 @@ export function normalizePoi(p: Poi): Poi {
   const type = normalizePoiType(p.type);
   const status = typeof p.status === "string" ? p.status.toLowerCase() : p.status;
   return type === p.type && status === p.status ? p : { ...p, type, status };
+}
+
+/**
+ * Community campsite waypoints are named like "Foo Campsite - Bar".
+ * Used to skip/exclude them when re-planning an existing campsite.
+ */
+export function isCampsiteLabeledPoi(p: Poi): boolean {
+  return /Campsite\s+-\s+/i.test(p.name);
 }
 
 export function isGymPoi(p: Poi) {

@@ -1,4 +1,11 @@
-import { INACTIVE_POWERSPOT, TYPE_META, isInactivePowerspot, type Poi, type PoiType } from "~/types/poi";
+import {
+  CAMPSITE_MARKER,
+  INACTIVE_POWERSPOT,
+  TYPE_META,
+  isInactivePowerspot,
+  type Poi,
+  type PoiType,
+} from "~/types/poi";
 
 function escapeHtml(s: string) {
   return s
@@ -14,21 +21,32 @@ function escapeAttr(s: string) {
 
 function iconBlock(p: Poi, display: PoiType) {
   const meta = TYPE_META[display];
-  if (p.icon) {
+  const campsite = p.source === "campsite";
+  if (!campsite && p.icon) {
     return `<img class="poi-popup-photo" src="${escapeAttr(p.icon)}" alt="" />`;
   }
-  if (display === "super_mega_gym") {
+  if (!campsite && display === "super_mega_gym") {
     return `<img class="poi-popup-photo" src="${escapeAttr(meta.image)}" alt="" />`;
   }
-  if (isInactivePowerspot(p)) {
-    return `<span class="poi-popup-glyph" style="background:${INACTIVE_POWERSPOT.color};-webkit-mask-image:url(${escapeAttr(INACTIVE_POWERSPOT.image)});mask-image:url(${escapeAttr(INACTIVE_POWERSPOT.image)})"></span>`;
-  }
-  return `<span class="poi-popup-glyph" style="background:${meta.color};-webkit-mask-image:url(${escapeAttr(meta.image)});mask-image:url(${escapeAttr(meta.image)})"></span>`;
+  const glyphType = campsite && display === "super_mega_gym" ? "gym" : display;
+  const glyphMeta = TYPE_META[glyphType];
+  const color = campsite
+    ? CAMPSITE_MARKER.color
+    : isInactivePowerspot(p)
+      ? INACTIVE_POWERSPOT.color
+      : glyphMeta.color;
+  const image = !campsite && isInactivePowerspot(p) ? INACTIVE_POWERSPOT.image : glyphMeta.image;
+  return `<span class="poi-popup-glyph" style="background:${color};-webkit-mask-image:url(${escapeAttr(image)});mask-image:url(${escapeAttr(image)})"></span>`;
 }
 
 export function poiPopupHtml(p: Poi, isSelected: boolean, display: PoiType = p.type) {
   const meta = TYPE_META[display];
-  const typeLabel = isInactivePowerspot(p) ? `${meta.label} · Inactive` : meta.label;
+  const typeLabel =
+    p.source === "campsite"
+      ? `Planned ${meta.label}`
+      : isInactivePowerspot(p)
+        ? `${meta.label} · Inactive`
+        : meta.label;
   const metaLines: string[] = [];
   if (p.type === "route" && p.path && p.path.length > 1) {
     metaLines.push(`${p.path.length} waypoints`);
@@ -58,5 +76,6 @@ export const POI_POPUP_OPTS = {
   minWidth: 220,
   autoPan: true,
   autoPanPadding: [48, 48] as [number, number],
+  closeButton: true,
   closeOnClick: false,
 };

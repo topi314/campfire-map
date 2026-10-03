@@ -72,18 +72,22 @@ Open http://localhost:8080.
 
 Optional workflow when you want a My Maps file:
 
-1. Open **Export**, then draw a rectangle or click markers (or **Select visible**).
-2. Download **KMZ** or **KML**.
-3. In [Google My Maps](https://www.google.com/maps/d/) create a map and **Import** the file.
+1. Open **Export**, then select POIs (click markers, or **Draw area** to select everything inside a polygon).
+2. Use **Lock map** to freeze fetches and show only the selection. Place planned PokéStops / Gyms / Powerspots (too-close spots are marked in red).
+3. In **Export…**, assign POI types to named reorderable layers (**Campsite layout** or **By type**). Routes keep start, path, and end in one layer.
+4. Download **KMZ** or **KML**, or **Save work** to reopen later (**Open work**).
+5. In [Google My Maps](https://www.google.com/maps/d/) create a map and **Import** the KMZ/KML. My Maps will show individual styles per place — that’s expected.
 
-My Maps allows 10 layers and 2000 features per layer. The export uses one folder per type and splits overflow (`Gyms 2`, …). There is no public API to create a My Map.
+My Maps allows 10 layers and 2000 features per layer. Overflow folders are named `Existing 2`, … There is no public API to create a My Map.
+
+On desktop, Explore (and Export when open) stay as side columns. On mobile, controls use a draggable bottom sheet (peek / half / expanded).
 
 ## API
 
 - `GET /api/health`
 - `GET /api/config` → `{ "cartoApiKey": "…" }` (basemap key for the browser, from `[basemaps]`)
 - `GET /api/pois?bbox=minLat,minLng,maxLat,maxLng&types=gym,super_mega_gym,pokestop,powerspot,route`
-- `POST /api/export` `{ "name": "…", "format": "kmz"|"kml", "pois": [ … ] }` → KMZ or KML download
+- `POST /api/export` `{ "name": "…", "format": "kmz"|"kml", "pois": [ … ], "outline"?: [[lat,lng],…], "layers"?: [{ "name", "types": [...] }] }` → KMZ or KML download
 
 World dumps are rejected (`limits.max_bbox_span`, default 0.35°).
 

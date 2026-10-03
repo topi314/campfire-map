@@ -1,6 +1,9 @@
 package poi
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 var errInvalidBBox = errors.New("bbox must be minLat,minLng,maxLat,maxLng")
 
@@ -59,6 +62,8 @@ const (
 	StatusInactive = "inactive"
 )
 
+const SourceCampsite = "campsite"
+
 type POI struct {
 	ID                string       `json:"id"`
 	Type              Type         `json:"type"`
@@ -70,6 +75,28 @@ type POI struct {
 	SuperMegaEligible bool         `json:"superMegaEligible,omitempty"`
 	// Status is set for Wayfarer powerspots ("active" / "inactive"); empty for GraphQL sources.
 	Status string `json:"status,omitempty"`
+	// Source is "campsite" for planned POIs; empty for live map data.
+	Source string `json:"source,omitempty"`
+}
+
+// LayerTypeKey returns the export layer chip key for this POI.
+func (p POI) LayerTypeKey() string {
+	if p.IsCampsite() {
+		switch p.Type {
+		case TypeGym, TypeSuperMegaGym:
+			return "campsite_gym"
+		case TypePokeStop:
+			return "campsite_pokestop"
+		case TypePowerspot:
+			return "campsite_powerspot"
+		}
+	}
+	return string(p.Type.FolderType())
+}
+
+// IsCampsite reports whether this is a planned campsite POI.
+func (p POI) IsCampsite() bool {
+	return strings.EqualFold(strings.TrimSpace(p.Source), SourceCampsite)
 }
 
 func (p POI) IsInactivePowerspot() bool {

@@ -31,7 +31,11 @@
           <strong>Select for export:</strong> hold <kbd>Shift</kbd> and click a marker on the map, or <kbd>Shift</kbd>-click a row in <strong>In view</strong>.
           On touch devices, <strong>long-press</strong> instead of Shift.
         </li>
-        <li>Open <strong>Export</strong> to review your selection, draw an area, or download a KMZ for Google My Maps.</li>
+        <li>
+          Open <strong>Export</strong> to select POIs, place campsite stops/gyms/powerspots, draw an area,
+          then download a KMZ for Google My Maps or save your work to reopen later.
+        </li>
+        <li>On mobile, drag the bottom panel handle up or down (or tap ▴) to show more map or more controls.</li>
       </ul>
 
       <div class="btn-row tutorial-actions">

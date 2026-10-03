@@ -1,4 +1,9 @@
 import { BASE_MAPS, DEFAULT_BASE_MAP_ID } from "~/constants/baseMaps";
+import {
+  defaultRadiusOverlays,
+  sanitizeRadiusOverlays,
+  type RadiusOverlayState,
+} from "~/constants/map";
 import { LAYER_TYPES, type PoiType } from "~/types/poi";
 
 const STORAGE_KEY = "campfire-export.uiSettings";
@@ -11,6 +16,7 @@ export interface StoredUiSettings {
   showAllRoutes: boolean;
   showInactivePowerspots: boolean;
   groupByLayer: boolean;
+  radiusOverlays: RadiusOverlayState;
 }
 
 const DEFAULT_ENABLED: Record<PoiType, boolean> = {
@@ -30,6 +36,7 @@ export function defaultUiSettings(): StoredUiSettings {
     showAllRoutes: false,
     showInactivePowerspots: true,
     groupByLayer: false,
+    radiusOverlays: defaultRadiusOverlays(),
   };
 }
 
@@ -73,6 +80,7 @@ function sanitizeSettings(raw: unknown): StoredUiSettings {
     showAllRoutes: enabled.route ? showAllRoutes : false,
     showInactivePowerspots: enabled.powerspot ? showInactivePowerspots : defaults.showInactivePowerspots,
     groupByLayer,
+    radiusOverlays: sanitizeRadiusOverlays(obj.radiusOverlays),
   };
 }
 
