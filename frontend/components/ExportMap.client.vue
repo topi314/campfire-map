@@ -990,6 +990,17 @@ function importPlan(plan: CampfirePlan) {
   exportPoisById.value = byId;
   selected.value = new Set(ids);
   campsitePois.value = plan.campsitePois.map((p) => normalizePoi({ ...p, source: "campsite" }));
+  // Saved powerspots are already in the file. Show them even without Wayfarer auth
+  // (auth is only required to fetch live powerspots).
+  const importedPowerspots = [...byId.values(), ...campsitePois.value].filter(
+    (p) => p.type === "powerspot",
+  );
+  if (importedPowerspots.length) {
+    enabled.value = { ...enabled.value, powerspot: true };
+    if (importedPowerspots.some((p) => isInactivePowerspot(p))) {
+      showInactivePowerspots.value = true;
+    }
+  }
   outline.value = plan.outline && plan.outline.length >= 3 ? plan.outline : null;
   outlineDraft.value = [];
   try {

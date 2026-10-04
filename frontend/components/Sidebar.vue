@@ -392,8 +392,12 @@ const status = computed(() => {
 
 function onLayerChange(t: PoiType, checked: boolean) {
   if (t === "powerspot" && checked && !canLoadPowerspots.value) {
-    emit("request-powerspot-auth");
-    return;
+    const hasLocalPowerspots = props.pois.some((p) => normalizePoiType(p.type) === "powerspot");
+    // Saved or already-loaded powerspots can be shown without auth. Fetching new ones cannot.
+    if (!hasLocalPowerspots) {
+      emit("request-powerspot-auth");
+      return;
+    }
   }
   enabled.value = { ...enabled.value, [t]: checked };
   if (t === "route" && !checked) {
