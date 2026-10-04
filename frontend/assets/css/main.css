@@ -331,74 +331,175 @@ body {
 
 .token-howto {
   margin: 0 0 12px;
-  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--panel-2);
+  background: var(--bg);
+  overflow: hidden;
 }
 
 .token-howto summary {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.75rem 0.9rem;
   cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text);
+  list-style: none;
   user-select: none;
+  color: var(--text);
+}
+
+.token-howto summary::-webkit-details-marker {
+  display: none;
+}
+
+.token-howto summary::marker {
+  content: "";
+}
+
+.token-howto summary:hover {
+  background: color-mix(in srgb, var(--panel-2) 70%, var(--bg));
+}
+
+.token-howto[open] summary {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.token-howto-chevron {
+  flex-shrink: 0;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  margin-left: 0.15rem;
+}
+
+.token-howto[open] .token-howto-chevron {
+  transform: rotate(45deg);
+  margin-top: -0.15rem;
+}
+
+.token-howto-summary-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.token-howto-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+
+.token-howto-sub {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.3;
 }
 
 .token-howto-body {
-  margin-top: 8px;
-}
-
-.token-howto-lead {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  color: var(--text);
-}
-
-.token-howto-browser {
-  margin: 0 0 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
+  padding: 0.75rem 0.9rem 0.85rem;
 }
 
 .token-howto-browsers {
-  /* Keep card height stable while switching browsers (Safari is tallest). */
-  min-height: 15rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  margin: 0 0 0.15rem;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
 }
 
-.token-howto-browser:last-child {
-  margin-bottom: 0;
-}
-
-.token-howto-browser summary {
+.token-howto-browsers button {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  padding: 0.35rem 0.65rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
   cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text);
-  user-select: none;
 }
 
-.token-howto-browser .token-howto-list {
-  margin-top: 6px;
+.token-howto-browsers button.active {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.token-howto-browsers button:hover:not(.active) {
+  color: var(--text);
+}
+
+.token-howto-steps {
+  margin: 0;
+  padding: 0.7rem 0 0.35rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.token-howto-steps li {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.token-howto-step {
+  flex-shrink: 0;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 0.05rem;
 }
 
 .token-howto-note {
-  margin: 10px 0 0;
+  margin: 0.65rem 0 0;
   font-size: 0.85rem;
   line-height: 1.45;
   color: var(--muted);
 }
 
-.token-howto-list {
-  margin-top: 0;
-  padding-left: 1.15rem;
+.token-howto a {
+  color: var(--accent);
 }
 
 .token-howto code {
-  font-size: 0.82em;
+  font-size: 0.84em;
+  word-break: break-all;
+}
+
+.token-howto kbd {
+  display: inline-block;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.8em;
+  font-family: inherit;
 }
 
 .section {

@@ -30,67 +30,204 @@
         <p class="counts settings-status">{{ statusText }}</p>
 
         <details class="token-howto" :open="!wayReady">
-          <summary>How to get SESSION and XSRF-TOKEN</summary>
+          <summary>
+            <span class="token-howto-chevron" aria-hidden="true"></span>
+            <span class="token-howto-summary-text">
+              <span class="token-howto-title">How to get SESSION and XSRF-TOKEN</span>
+              <span class="token-howto-sub">Copy them from Wayfarer cookies</span>
+            </span>
+          </summary>
           <div class="token-howto-body">
-            <p class="token-howto-lead">
-              1. Open
-              <a href="https://wayfarer.scopely.com" target="_blank" rel="noreferrer">wayfarer.scopely.com</a>
-              and sign in.
-            </p>
-            <p class="token-howto-lead">2. Follow the steps for your browser:</p>
-
-            <div class="token-howto-browsers">
-              <details class="token-howto-browser" :open="openBrowser === 'chrome'">
-                <summary @click.prevent="toggleBrowser('chrome')">Chrome / Edge</summary>
-                <ol class="tutorial-list token-howto-list">
-                  <li>Right‑click the page → <strong>Inspect</strong>.</li>
-                  <li>Open the <strong>Application</strong> tab.</li>
-                  <li>
-                    Left sidebar → <strong>Cookies</strong> →
-                    <code>https://wayfarer.scopely.com</code>.
-                  </li>
-                  <li>
-                    Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
-                  </li>
-                </ol>
-              </details>
-
-              <details class="token-howto-browser" :open="openBrowser === 'firefox'">
-                <summary @click.prevent="toggleBrowser('firefox')">Firefox</summary>
-                <ol class="tutorial-list token-howto-list">
-                  <li>Right‑click the page → <strong>Inspect</strong>.</li>
-                  <li>Open the <strong>Storage</strong> tab.</li>
-                  <li>
-                    Left sidebar → <strong>Cookies</strong> →
-                    <code>https://wayfarer.scopely.com</code>.
-                  </li>
-                  <li>
-                    Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
-                  </li>
-                </ol>
-              </details>
-
-              <details class="token-howto-browser" :open="openBrowser === 'safari'">
-                <summary @click.prevent="toggleBrowser('safari')">Safari</summary>
-                <ol class="tutorial-list token-howto-list">
-                  <li>
-                    Enable the Develop menu: <strong>Safari → Settings → Advanced</strong> → check
-                    <strong>Show features for web developers</strong>.
-                  </li>
-                  <li><strong>Develop → Show Web Inspector</strong>.</li>
-                  <li>Open the <strong>Storage</strong> tab.</li>
-                  <li>
-                    Left sidebar → <strong>Cookies</strong> →
-                    <code>https://wayfarer.scopely.com</code>.
-                  </li>
-                  <li>
-                    Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
-                  </li>
-                </ol>
-              </details>
+            <div class="token-howto-browsers" role="tablist" aria-label="Browser">
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: openBrowser === 'chrome' }"
+                :aria-selected="openBrowser === 'chrome'"
+                @click="openBrowser = 'chrome'"
+              >
+                Chrome
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: openBrowser === 'edge' }"
+                :aria-selected="openBrowser === 'edge'"
+                @click="openBrowser = 'edge'"
+              >
+                Edge
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: openBrowser === 'firefox' }"
+                :aria-selected="openBrowser === 'firefox'"
+                @click="openBrowser = 'firefox'"
+              >
+                Firefox
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: openBrowser === 'safari' }"
+                :aria-selected="openBrowser === 'safari'"
+                @click="openBrowser = 'safari'"
+              >
+                Safari
+              </button>
             </div>
 
-            <p class="token-howto-lead">3. Paste both values below and click <strong>Save</strong>.</p>
+            <ol v-if="openBrowser === 'chrome'" class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://wayfarer.scopely.com" target="_blank" rel="noreferrer"
+                    >wayfarer.scopely.com</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Press <kbd>F12</kbd> (or right-click → Inspect) and open the
+                  <strong>Application</strong> tab.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  In the left sidebar, expand <strong>Cookies</strong> and select
+                  <code>https://wayfarer.scopely.com</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>Paste both values below and click <strong>Save</strong>.</span>
+              </li>
+            </ol>
+
+            <ol v-else-if="openBrowser === 'edge'" class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://wayfarer.scopely.com" target="_blank" rel="noreferrer"
+                    >wayfarer.scopely.com</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Press <kbd>F12</kbd> (or right-click → Inspect) and open the
+                  <strong>Application</strong> tab. If you don’t see it, open the
+                  <strong>≫</strong> menu in the DevTools toolbar.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  In the left sidebar, expand <strong>Cookies</strong> and select
+                  <code>https://wayfarer.scopely.com</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>Paste both values below and click <strong>Save</strong>.</span>
+              </li>
+            </ol>
+
+            <ol v-else-if="openBrowser === 'firefox'" class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://wayfarer.scopely.com" target="_blank" rel="noreferrer"
+                    >wayfarer.scopely.com</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Press <kbd>F12</kbd> (or right-click → Inspect) and open the
+                  <strong>Storage</strong> tab.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  In the left sidebar, expand <strong>Cookies</strong> and select
+                  <code>https://wayfarer.scopely.com</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Copy the values for <code>SESSION</code> and <code>XSRF-TOKEN</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>Paste both values below and click <strong>Save</strong>.</span>
+              </li>
+            </ol>
+
+            <ol v-else class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://wayfarer.scopely.com" target="_blank" rel="noreferrer"
+                    >wayfarer.scopely.com</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Enable the Develop menu if needed:
+                  <strong>Safari → Settings → Advanced → Show features for web developers</strong>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  Choose <strong>Develop → Show Web Inspector</strong> (or
+                  <kbd>⌥⌘I</kbd>), then open the <strong>Storage</strong> tab.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Under <strong>Cookies</strong>, select
+                  <code>https://wayfarer.scopely.com</code>, then copy
+                  <code>SESSION</code> and <code>XSRF-TOKEN</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>Paste both values below and click <strong>Save</strong>.</span>
+              </li>
+            </ol>
+
             <p class="token-howto-note">Cookies expire — paste fresh ones if Powerspots stop loading.</p>
           </div>
         </details>
@@ -151,7 +288,7 @@
 <script setup lang="ts">
 import { downloadMyMapsIconsZip } from "~/utils/myMapsIcons";
 
-type BrowserGuide = "chrome" | "firefox" | "safari";
+type BrowserGuide = "chrome" | "edge" | "firefox" | "safari";
 
 const props = defineProps<{
   open: boolean;
@@ -172,10 +309,6 @@ const showWaySession = ref(false);
 const showWayXsrf = ref(false);
 const downloadingIcons = ref(false);
 const openBrowser = ref<BrowserGuide>("chrome");
-
-function toggleBrowser(browser: BrowserGuide) {
-  openBrowser.value = browser;
-}
 
 const wayDraftReady = computed(() => !!waySession.value.trim() && !!wayXsrf.value.trim());
 const wayReady = computed(() => props.wayfarerEnabled && !!props.wayfarerSession && !!props.wayfarerXsrf);
