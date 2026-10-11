@@ -1,4 +1,10 @@
 import {
+  RADIUS_OVERLAYS,
+  radiusOverlayApplies,
+  type RadiusOverlayDef,
+  type RadiusOverlayId,
+} from "~/constants/map";
+import {
   LAYER_TYPES,
   TYPE_META,
   isGymPoi,
@@ -16,7 +22,10 @@ export type LayerTypeKey =
   | "campsite_gym"
   | "campsite_pokestop"
   | "campsite_powerspot"
-  | "outline";
+  | "outline"
+  | "range_wayfarer"
+  | "range_lure"
+  | "range_interaction";
 
 export interface ExportLayer {
   id: string;
@@ -49,7 +58,17 @@ export const CAMPSITE_LAYER_TYPES: LayerTypeKey[] = [
   "outline",
 ];
 
-export const ALL_LAYER_TYPE_KEYS: LayerTypeKey[] = [...EXISTING_LAYER_TYPES, ...CAMPSITE_LAYER_TYPES];
+export const RANGE_LAYER_TYPES: LayerTypeKey[] = [
+  "range_wayfarer",
+  "range_lure",
+  "range_interaction",
+];
+
+export const ALL_LAYER_TYPE_KEYS: LayerTypeKey[] = [
+  ...EXISTING_LAYER_TYPES,
+  ...CAMPSITE_LAYER_TYPES,
+  ...RANGE_LAYER_TYPES,
+];
 
 export const LAYER_TYPE_LABELS: Record<LayerTypeKey, string> = {
   gym: "Gyms",
@@ -61,7 +80,33 @@ export const LAYER_TYPE_LABELS: Record<LayerTypeKey, string> = {
   campsite_pokestop: "Campsite PokéStops",
   campsite_powerspot: "Campsite Powerspots",
   outline: "Draw area",
+  range_wayfarer: "Range · Min POI spacing (30 m)",
+  range_lure: "Range · Lure (40 m)",
+  range_interaction: "Range · Interaction (80 m)",
 };
+
+export function isRangeLayerType(t: LayerTypeKey): boolean {
+  return RANGE_LAYER_TYPES.includes(t);
+}
+
+export function rangeOverlayIdForLayerType(t: LayerTypeKey): RadiusOverlayId | null {
+  switch (t) {
+    case "range_wayfarer":
+      return "wayfarer";
+    case "range_lure":
+      return "lure";
+    case "range_interaction":
+      return "interaction";
+    default:
+      return null;
+  }
+}
+
+export function rangeDefForLayerType(t: LayerTypeKey): RadiusOverlayDef | null {
+  const id = rangeOverlayIdForLayerType(t);
+  if (!id) return null;
+  return RADIUS_OVERLAYS.find((d) => d.id === id) ?? null;
+}
 
 /** Campsite planner: existing neighbors, routes, play area, planned campsite pins. */
 export function defaultCampsiteExportLayers(): ExportLayer[] {
@@ -80,6 +125,11 @@ export function defaultCampsiteExportLayers(): ExportLayer[] {
       id: "layer-play-area",
       name: "Play Area",
       types: ["outline"],
+    },
+    {
+      id: "layer-ranges",
+      name: "Ranges",
+      types: ["range_wayfarer"],
     },
     {
       id: "layer-campsite",
@@ -160,7 +210,7 @@ export function normalizeExportLayers(layers: ExportLayer[] | undefined | null):
   // Campsite layout used to leave routes unassigned (omitted from My Maps).
   if (!seen.has("route")) {
     const afterExisting = base.findIndex((l) => /existing/i.test(l.name));
-    const routeLayer = { id: newLayerId(), name: "Routes", types: ["route" as LayerTypeKey] };
+    const routeLayer: ExportLayer = { id: newLayerId(), name: "Routes", types: ["route"] };
     if (afterExisting >= 0) base.splice(afterExisting + 1, 0, routeLayer);
     else base.push(routeLayer);
   }
@@ -256,6 +306,16 @@ export function estimateMyMapsFolders(
     const layerId = typeToLayer.get("outline");
     if (layerId) counts.set(layerId, (counts.get(layerId) || 0) + 1);
   }
+  for (const t of RANGE_LAYER_TYPES) {
+    const layerId = typeToLayer.get(t);
+    const def = rangeDefForLayerType(t);
+    if (!layerId || !def) continue;
+    let n = 0;
+    for (const p of pois) {
+      if (radiusOverlayApplies(def, p)) n++;
+    }
+    if (n) counts.set(layerId, (counts.get(layerId) || 0) + n);
+  }
   let folders = 0;
   for (const n of counts.values()) {
     if (n <= 0) continue;
@@ -280,7 +340,17 @@ export function campsiteLayerTypeIncluded(key: LayerTypeKey, includeTypes: Recor
     case "campsite_powerspot":
       return includeTypes.powerspot;
     case "outline":
+    case "range_wayfarer":
       return true;
+    case "range_lure":
+      return !!includeTypes.pokestop;
+    case "range_interaction":
+      return !!(
+        includeTypes.gym ||
+        includeTypes.super_mega_gym ||
+        includeTypes.pokestop ||
+        includeTypes.powerspot
+      );
     default:
       return includeTypes[key as PoiType] ?? true;
   }

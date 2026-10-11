@@ -2,7 +2,8 @@
   <div class="layer-editor">
     <div class="token-label">My Maps layers</div>
     <p class="counts layer-editor-hint">
-      Assign POI types to named layers. Drag types between layers. Routes (start, path, end) stay in one layer.
+      Assign POI types and ranges to named layers. Drag chips between layers. Routes (start, path, end) stay in one
+      layer. Range chips export a circle around each matching POI.
     </p>
     <div class="btn-row layer-preset-row">
       <button type="button" class="btn-with-icon" @click="applyPreset('campsite')">

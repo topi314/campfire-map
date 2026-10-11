@@ -67,7 +67,6 @@
           :outline="outline"
           :proximity-warning="proximityWarning"
           :campsite-note="campsiteNote"
-          v-model:radius-overlays="radiusOverlays"
           @toggle="togglePoi"
           @enter-campsite="enterCampsiteEdit"
           @exit-campsite="exitCampsiteEdit"
@@ -249,6 +248,8 @@ let suppressPopupClose = false;
 let pendingPowerspotEnable = false;
 let warnCircle: CircleMarker | null = null;
 let draggingCampsiteId: string | null = null;
+/** Selection before draw-area edits; restored if the draft is cancelled. */
+let outlineSelectionSnapshot: { selected: Set<string>; byId: Map<string, Poi> } | null = null;
 
 onMounted(async () => {
   const leaflet = await import("leaflet");
@@ -404,15 +405,31 @@ function exitCampsiteEdit() {
   if (was) scheduleLoad();
 }
 
+function snapshotOutlineSelection() {
+  outlineSelectionSnapshot = {
+    selected: new Set(selected.value),
+    byId: new Map(exportPoisById.value),
+  };
+}
+
+function restoreOutlineSelectionSnapshot() {
+  if (!outlineSelectionSnapshot) return;
+  selected.value = new Set(outlineSelectionSnapshot.selected);
+  exportPoisById.value = new Map(outlineSelectionSnapshot.byId);
+  outlineSelectionSnapshot = null;
+}
+
 /** Commits draft area if it has ≥3 points. Returns whether a new area was saved. */
 function commitOutlineDraft() {
   if (outlineDraft.value.length >= 3) {
     outline.value = outlineDraft.value.map((p) => [p[0], p[1]] as [number, number]);
     outlineDraft.value = [];
     selectPoisInsideOutline(outline.value);
+    outlineSelectionSnapshot = null;
     return true;
   }
   outlineDraft.value = [];
+  restoreOutlineSelectionSnapshot();
   return false;
 }
 
@@ -425,10 +442,7 @@ function currentlyShownPois(): Poi[] {
   }
   for (const id of markers.keys()) {
     if (byId.has(id)) continue;
-    const p =
-      campsitePois.value.find((c) => c.id === id) ??
-      poiCache.get(id) ??
-      exportPoisById.value.get(id);
+    const p = poiById(id);
     if (!p || p.source === "campsite") continue;
     if (!isLayerEnabled(p)) continue;
     byId.set(id, p);
@@ -653,6 +667,7 @@ function startOutlineDraw() {
   const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
   if (!map || !L) return;
   map.getContainer().style.cursor = "crosshair";
+  snapshotOutlineSelection();
   outlineDraft.value = outline.value ? outline.value.map((p) => [p[0], p[1]] as [number, number]) : [];
   renderOutline();
 
@@ -661,6 +676,14 @@ function startOutlineDraw() {
     placeTool.value = null;
     stopPlaceTool();
     renderOutline();
+  };
+
+  const cancel = () => {
+    outlineDraft.value = [];
+    placeTool.value = null;
+    stopPlaceTool();
+    renderOutline();
+    restoreOutlineSelectionSnapshot();
   };
 
   const onClick = (e: LeafletMouseEvent) => {
@@ -689,10 +712,7 @@ function startOutlineDraw() {
 
   const onKeyDown = (ev: KeyboardEvent) => {
     if (ev.key === "Escape") {
-      outlineDraft.value = [];
-      placeTool.value = null;
-      stopPlaceTool();
-      renderOutline();
+      cancel();
     } else if ((ev.key === "Backspace" || ev.key === "Delete") && outlineDraft.value.length) {
       ev.preventDefault();
       outlineDraft.value = outlineDraft.value.slice(0, -1);
@@ -1146,13 +1166,17 @@ function focusPoi(p: Poi) {
   map.setView([poi.lat, poi.lng], Math.max(map.getZoom(), DEFAULT_MAP_ZOOM));
 }
 
-function resolvePoi(p: Poi) {
+function poiById(id: string): Poi | undefined {
   return (
-    campsitePois.value.find((c) => c.id === p.id) ??
-    poiCache.get(p.id) ??
-    exportPoisById.value.get(p.id) ??
-    p
+    campsitePois.value.find((c) => c.id === id) ??
+    poiCache.get(id) ??
+    exportPoisById.value.get(id) ??
+    pois.value.find((p) => p.id === id)
   );
+}
+
+function resolvePoi(p: Poi) {
+  return poiById(p.id) ?? p;
 }
 
 function attachExportSelect(layer: Layer, p: Poi) {
@@ -1335,20 +1359,15 @@ function prunePoiCache(b: LatLngBounds) {
   }
 }
 
-/** Export-list membership for popup actions (independent of locked pin outline). */
-function isExportSelected(id: string) {
-  return selected.value.has(id);
-}
-
 function poiPopupContent(p: Poi) {
   const cur = resolvePoi(p);
-  return poiPopupHtml(cur, isExportSelected(cur.id), displayType(cur));
+  return poiPopupHtml(cur, selected.value.has(cur.id), displayType(cur));
 }
 
 /** Keep popup HTML in sync (Leaflet setContent replaces the factory and can go stale). */
 function syncPoiPopupContent(layer: Layer, p: Poi) {
   const popup = layer.getPopup();
-  if (!popup) return;
+  if (!popup?.isOpen()) return;
   suppressPopupClose = true;
   try {
     popup.setContent(poiPopupContent(p));
@@ -1357,47 +1376,49 @@ function syncPoiPopupContent(layer: Layer, p: Poi) {
   }
 }
 
+/**
+ * Delegate popup actions on the Leaflet container so setContent() can replace the
+ * inner HTML without dropping click handlers (per-button binds were flaky on routes).
+ */
+function ensurePoiPopupActions(layer: Layer, p: Poi) {
+  const root = layer.getPopup()?.getElement();
+  if (!root || root.dataset.poiPopupActions === "1") return;
+  root.dataset.poiPopupActions = "1";
+  root.addEventListener("click", (ev) => {
+    const t = ev.target as HTMLElement | null;
+    if (!t) return;
+    if (t.closest("[data-poi-delete]")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      layer.closePopup();
+      removeCampsitePoi(p.id);
+      return;
+    }
+    if (t.closest("[data-poi-toggle]")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const cur = resolvePoi(p);
+      togglePoi(cur);
+      syncPoiPopupContent(layer, cur);
+    }
+  });
+}
+
 function attachPoiPopup(layer: Layer, p: Poi) {
   const id = p.id;
   layer.bindPopup(() => poiPopupContent(p), POI_POPUP_OPTS);
   layer.on("popupopen", () => {
     openPopupId = id;
-    // Recompute every open so locked/selected routes don't keep a stale "Select" label.
-    syncPoiPopupContent(layer, p);
-    bindPopupToggle(layer, resolvePoi(p));
+    ensurePoiPopupActions(layer, p);
+    // Defer content refresh until the container is mounted; keeps labels correct
+    // after prior setContent() calls replaced the factory.
+    nextTick(() => {
+      if (layer.getPopup()?.isOpen()) syncPoiPopupContent(layer, p);
+    });
   });
   layer.on("popupclose", () => {
     if (suppressPopupClose) return;
     if (openPopupId === id) openPopupId = null;
-  });
-}
-
-function bindPopupToggle(layer: Layer, p: Poi) {
-  const popup = layer.getPopup();
-  const root = popup?.getElement();
-  if (!root) return;
-
-  const deleteBtn = root.querySelector("[data-poi-delete]") as HTMLElement | null;
-  if (deleteBtn && deleteBtn.dataset.bound !== "1") {
-    deleteBtn.dataset.bound = "1";
-    deleteBtn.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      layer.closePopup();
-      removeCampsitePoi(p.id);
-    });
-    return;
-  }
-
-  const btn = root.querySelector("[data-poi-toggle]") as HTMLElement | null;
-  if (!btn || btn.dataset.bound === "1") return;
-  btn.dataset.bound = "1";
-  btn.addEventListener("click", (ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    togglePoi(p);
-    syncPoiPopupContent(layer, p);
-    bindPopupToggle(layer, resolvePoi(p));
   });
 }
 
@@ -1575,22 +1596,10 @@ function onRoutePartClick(p: Poi, ev?: LeafletMouseEvent, exportSelect = false) 
   });
 }
 
-function poiById(id: string): Poi | undefined {
-  return (
-    campsitePois.value.find((c) => c.id === id) ??
-    poiCache.get(id) ??
-    exportPoisById.value.get(id) ??
-    pois.value.find((p) => p.id === id)
-  );
-}
-
 function openRouteInfoPopup(id: string) {
-  const p = poiById(id);
   const start = markers.get(id);
   if (start) {
-    if (p) syncPoiPopupContent(start, p);
     start.openPopup();
-    if (p) bindPopupToggle(start, p);
     return;
   }
   const overlay = routeOverlays.get(id);
@@ -1598,9 +1607,7 @@ function openRouteInfoPopup(id: string) {
   for (let i = overlay.length - 1; i >= 0; i--) {
     const layer = overlay[i];
     if (!layer.getPopup()) continue;
-    if (p) syncPoiPopupContent(layer, p);
     layer.openPopup();
-    if (p) bindPopupToggle(layer, p);
     return;
   }
 }
@@ -1839,30 +1846,20 @@ function refreshMarker(marker: Marker, p: Poi) {
   const outlineSelected = markerShowsExportSelect(p);
   const el = marker.getElement()?.querySelector(".poi-marker");
   if (el) el.classList.toggle("selected-pin", outlineSelected);
-  if (marker.getPopup()?.isOpen()) {
-    syncPoiPopupContent(marker, p);
-    bindPopupToggle(marker, p);
-  }
+  if (marker.getPopup()?.isOpen()) syncPoiPopupContent(marker, p);
 }
 
 function refreshMarkerSelection() {
   const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
   if (!L) return;
   for (const [id, marker] of markers) {
-    const p =
-      campsitePois.value.find((c) => c.id === id) ??
-      poiCache.get(id) ??
-      exportPoisById.value.get(id) ??
-      pois.value.find((poi) => poi.id === id);
+    const p = poiById(id);
     if (!p) continue;
     const outlineSelected = markerShowsExportSelect(p);
     marker.setIcon(pinIcon(L, p));
     const el = marker.getElement()?.querySelector(".poi-marker");
     if (el) el.classList.toggle("selected-pin", outlineSelected);
-    if (marker.getPopup()?.isOpen()) {
-      syncPoiPopupContent(marker, p);
-      bindPopupToggle(marker, p);
-    }
+    if (marker.getPopup()?.isOpen()) syncPoiPopupContent(marker, p);
   }
   syncRouteOverlays();
 }

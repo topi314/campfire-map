@@ -20,6 +20,7 @@ func TestBuildKMZ(t *testing.T) {
 	}, ExportOptions{
 		Layers: []ExportLayer{
 			{Name: "Existing", Types: []string{"gym", "super_mega_gym", "pokestop", "powerspot", "route"}},
+			{Name: "Ranges", Types: []string{"range_wayfarer"}},
 			{Name: "Campsite", Types: []string{"campsite_gym", "campsite_pokestop", "campsite_powerspot", "outline"}},
 		},
 		Outline: [][2]float64{{52.5, 13.4}, {52.51, 13.4}, {52.51, 13.41}},
@@ -49,11 +50,17 @@ func TestBuildKMZ(t *testing.T) {
 		t.Fatalf("missing kmz entries: %v", files)
 	}
 	for _, needle := range []string{
-		"Existing", "Campsite",
+		"Existing", "Campsite", "Ranges",
 		"Gym One", "Mega Gate", "Loop", "Planned Stop", "Draw area",
-		"<LineString>", "<Point>", "<Polygon>", "#super_mega_gym", `<Style id="gym"`, "files/gym.png",
-		`#campsite_pokestop`, `files/campsite_pokestop.png`, `<Style id="campsite_pokestop"`,
-		"route-line", "#outline",
+		"Min POI spacing",
+		"<LineString>", "<Point>", "<Polygon>", "#super_mega_gym", "files/gym.png",
+		`#campsite_pokestop`, `files/campsite_pokestop.png`,
+		"route-line", "#outline", `#range_wayfarer`,
+		`<Style id="gym-normal"`, `<StyleMap id="gym"`,
+		`<Style id="campsite_pokestop-normal"`, `<StyleMap id="campsite_pokestop"`,
+		`<Style id="range_wayfarer-normal"`, `<StyleMap id="range_wayfarer"`,
+		`<Data name="Type">`, "<value>Gym</value>", "<value>Campsite PokéStop</value>",
+		"<value>Min POI spacing</value>", "<value>Draw area</value>",
 	} {
 		if !strings.Contains(kmlDoc, needle) {
 			t.Errorf("kml missing %q", needle)
@@ -76,6 +83,9 @@ func TestBuildKMZ(t *testing.T) {
 	if !folderContains(kmlDoc, "Campsite", "Planned Stop") || !folderContains(kmlDoc, "Campsite", "Draw area") {
 		t.Error("campsite POI and outline should be in Campsite folder")
 	}
+	if !folderContains(kmlDoc, "Ranges", "#range_wayfarer") {
+		t.Error("range circles should be in Ranges folder")
+	}
 }
 
 func TestBuildKML(t *testing.T) {
@@ -92,7 +102,7 @@ func TestBuildKML(t *testing.T) {
 	if !strings.Contains(s, "data:image/png;base64,") {
 		t.Fatal("expected inlined icon data URIs")
 	}
-	if !strings.Contains(s, "Gym One") || !strings.Contains(s, `<Style id="gym"`) {
+	if !strings.Contains(s, "Gym One") || !strings.Contains(s, `<StyleMap id="gym"`) || !strings.Contains(s, `<Style id="gym-normal"`) {
 		t.Fatalf("unexpected kml:\n%s", s[:min(400, len(s))])
 	}
 }

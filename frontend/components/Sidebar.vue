@@ -213,7 +213,7 @@
 
 <script setup lang="ts">
 import {
-  MAP_RADIUS_OVERLAYS,
+  RADIUS_OVERLAYS,
   type RadiusOverlayId,
   type RadiusOverlayState,
 } from "~/constants/map";
@@ -263,7 +263,7 @@ const radiusOverlays = defineModel<RadiusOverlayState>("radiusOverlays", { requi
 const canLoadPowerspots = computed(() => wayfarerReady.value);
 
 const layerTypes = LAYER_TYPES;
-const radiusOverlayDefs = MAP_RADIUS_OVERLAYS;
+const radiusOverlayDefs = RADIUS_OVERLAYS;
 const cellLabel = computed(() => {
   const parts: string[] = [];
   if (props.l14Count > 0) parts.push(`L14 · ${props.l14Count}`);

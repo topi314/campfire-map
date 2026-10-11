@@ -89,12 +89,23 @@ type folder struct {
 }
 
 type placemark struct {
-	Name        string   `xml:"name"`
-	Description string   `xml:"description"`
-	StyleURL    string   `xml:"styleUrl"`
-	Point       *point   `xml:"Point,omitempty"`
-	LineString  *line    `xml:"LineString,omitempty"`
-	Polygon     *polygon `xml:"Polygon,omitempty"`
+	Name         string        `xml:"name"`
+	Description  string        `xml:"description"`
+	StyleURL     string        `xml:"styleUrl"`
+	ExtendedData *extendedData `xml:"ExtendedData,omitempty"`
+	Point        *point        `xml:"Point,omitempty"`
+	LineString   *line         `xml:"LineString,omitempty"`
+	Polygon      *polygon      `xml:"Polygon,omitempty"`
+}
+
+// My Maps imports Data fields as layer columns (e.g. Style by data column → Type).
+type extendedData struct {
+	Data []dataField `xml:"Data"`
+}
+
+type dataField struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value"`
 }
 
 type point struct {
@@ -221,7 +232,9 @@ func dataURI(png []byte) string {
 func defaultLayers() []ExportLayer {
 	return []ExportLayer{
 		{Name: "Existing", Types: []string{"gym", "pokestop", "powerspot"}},
+		{Name: "Routes", Types: []string{"route"}},
 		{Name: "Play Area", Types: []string{"outline"}},
+		{Name: "Ranges", Types: []string{"range_wayfarer"}},
 		{Name: "Campsite", Types: []string{"campsite_gym", "campsite_pokestop", "campsite_powerspot"}},
 	}
 }
@@ -263,6 +276,19 @@ func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string, opts E
 		}
 	}
 
+	for _, def := range exportRanges {
+		idx, ok := typeToLayer[def.key]
+		if !ok {
+			continue
+		}
+		for _, p := range pois {
+			if !rangeApplies(def, p) {
+				continue
+			}
+			buckets[idx] = append(buckets[idx], circlePlacemark(p, def))
+		}
+	}
+
 	for i, layer := range layers {
 		items := buckets[i]
 		if len(items) == 0 {
@@ -296,54 +322,120 @@ func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string, opts E
 
 func sharedStyles(iconRefs map[string]string) ([]style, []styleMap) {
 	var styles []style
-	// My Maps imports StyleMap poorly for custom icons; use a single shared Style per type.
 	var maps []styleMap
+	// My Maps expects StyleMap (normal/highlight) like its own export; shared Style-only
+	// ids often collapse to a uniform layer style on import.
 	centerHot := hotSpot{X: "0.5", Y: "0.5", XUnits: "fraction", YUnits: "fraction"}
 
-	addIconStyle := func(id, href string) {
-		styles = append(styles, style{
+	addIconStyleMap := func(id, href string) {
+		for _, part := range []struct {
+			suffix     string
+			labelScale string
+		}{
+			{"-normal", "0"},
+			{"-highlight", "1"},
+		} {
+			styles = append(styles, style{
+				ID: id + part.suffix,
+				IconStyle: &iconStyle{
+					Scale:   iconScale,
+					Icon:    icon{Href: href},
+					HotSpot: centerHot,
+				},
+				LabelStyle: &labelStyle{Scale: part.labelScale},
+			})
+		}
+		maps = append(maps, styleMap{
 			ID: id,
-			IconStyle: &iconStyle{
-				Scale:   iconScale,
-				Icon:    icon{Href: href},
-				HotSpot: centerHot,
+			Pair: []stylePair{
+				{Key: "normal", StyleURL: "#" + id + "-normal"},
+				{Key: "highlight", StyleURL: "#" + id + "-highlight"},
 			},
-			LabelStyle: &labelStyle{Scale: "0"},
+		})
+	}
+
+	addLinePolyStyleMap := func(id, lineColor string, lineWidth int, polyColor string) {
+		for _, suffix := range []string{"-normal", "-highlight"} {
+			s := style{
+				ID:        id + suffix,
+				LineStyle: &lineStyle{Color: lineColor, Width: lineWidth},
+			}
+			if polyColor != "" {
+				s.PolyStyle = &polyStyle{Color: polyColor, Fill: 1, Outline: 1}
+			}
+			styles = append(styles, s)
+		}
+		maps = append(maps, styleMap{
+			ID: id,
+			Pair: []stylePair{
+				{Key: "normal", StyleURL: "#" + id + "-normal"},
+				{Key: "highlight", StyleURL: "#" + id + "-highlight"},
+			},
 		})
 	}
 
 	for _, t := range poi.AllTypes() {
 		id := string(t)
-		addIconStyle(id, iconRefs[id])
+		addIconStyleMap(id, iconRefs[id])
 	}
 	for key := range campsiteIconBases {
-		addIconStyle(key, iconRefs[key])
+		addIconStyleMap(key, iconRefs[key])
 	}
 
-	styles = append(styles, style{
-		ID:        "route-line",
-		LineStyle: &lineStyle{Color: routeLineKML, Width: 4},
-	})
+	addLinePolyStyleMap("route-line", routeLineKML, 4, "")
+	addIconStyleMap("route-end", iconRefs["route-end"])
+	addLinePolyStyleMap("outline", "ff8cff5b", 3, "405b8cff")
 
-	addIconStyle("route-end", iconRefs["route-end"])
-
-	styles = append(styles, style{
-		ID:        "outline",
-		LineStyle: &lineStyle{Color: "ff8cff5b", Width: 3},
-		PolyStyle: &polyStyle{Color: "405b8cff", Fill: 1, Outline: 1},
-	})
+	for _, def := range exportRanges {
+		addLinePolyStyleMap(def.key, hexToKML(def.color, 0xff), 2, hexToKML(def.color, 0x40))
+	}
 
 	return styles, maps
+}
+
+func typeData(typeValue string) *extendedData {
+	return &extendedData{Data: []dataField{{Name: "Type", Value: typeValue}}}
+}
+
+// typeColumn is the My Maps “Type” column value for Style by data column.
+func typeColumn(p poi.POI) string {
+	if p.IsCampsite() {
+		switch p.Type {
+		case poi.TypeGym, poi.TypeSuperMegaGym:
+			return "Campsite Gym"
+		case poi.TypePokeStop:
+			return "Campsite PokéStop"
+		case poi.TypePowerspot:
+			return "Campsite Powerspot"
+		}
+	}
+	switch p.Type {
+	case poi.TypeGym:
+		return "Gym"
+	case poi.TypeSuperMegaGym:
+		return "Super Mega Gym"
+	case poi.TypePokeStop:
+		return "PokéStop"
+	case poi.TypePowerspot:
+		if p.IsInactivePowerspot() {
+			return "Powerspot · Inactive"
+		}
+		return "Powerspot"
+	case poi.TypeRoute:
+		return "Route"
+	default:
+		return string(p.Type)
+	}
+}
+
+func poiDescription(p poi.POI, typeValue string) string {
+	return fmt.Sprintf("%s · %.6f, %.6f · Type: %s", p.Name, p.Lat, p.Lng, typeValue)
 }
 
 // placemarksForPOI returns one or more placemarks. Routes keep start, path, and end together
 // (caller places them in the same folder). Styles are shared by POI type in the KML file;
 // My Maps typically imports them as individual styles per feature — that's fine.
 func placemarksForPOI(p poi.POI) []placemark {
-	desc := fmt.Sprintf("%s · %.6f, %.6f", p.Type.Label(), p.Lat, p.Lng)
-	if p.IsCampsite() {
-		desc = "Campsite " + desc
-	}
 	styleID := p.LayerTypeKey()
 	if p.Type == poi.TypeRoute && len(p.Path) > 1 {
 		coords := make([]string, 0, len(p.Path))
@@ -352,32 +444,38 @@ func placemarksForPOI(p poi.POI) []placemark {
 		}
 		start := p.Path[0]
 		endPt := p.Path[len(p.Path)-1]
+		startType, pathType, endType := "Route", "Route path", "Route end"
 		return []placemark{
 			{
-				Name:        p.Name,
-				Description: desc,
-				StyleURL:    "#route",
-				Point:       &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", start[1], start[0])},
+				Name:         p.Name,
+				Description:  poiDescription(p, startType),
+				StyleURL:     "#route",
+				ExtendedData: typeData(startType),
+				Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", start[1], start[0])},
 			},
 			{
-				Name:        p.Name,
-				Description: desc,
-				StyleURL:    "#route-line",
-				LineString:  &line{Tessellate: 1, Coordinates: strings.Join(coords, " ")},
+				Name:         p.Name,
+				Description:  poiDescription(p, pathType),
+				StyleURL:     "#route-line",
+				ExtendedData: typeData(pathType),
+				LineString:   &line{Tessellate: 1, Coordinates: strings.Join(coords, " ")},
 			},
 			{
-				Name:        p.Name + " (end)",
-				Description: desc,
-				StyleURL:    "#route-end",
-				Point:       &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", endPt[1], endPt[0])},
+				Name:         p.Name + " (end)",
+				Description:  poiDescription(p, endType),
+				StyleURL:     "#route-end",
+				ExtendedData: typeData(endType),
+				Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", endPt[1], endPt[0])},
 			},
 		}
 	}
+	t := typeColumn(p)
 	return []placemark{{
-		Name:        p.Name,
-		Description: desc,
-		StyleURL:    "#" + styleID,
-		Point:       &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", p.Lng, p.Lat)},
+		Name:         p.Name,
+		Description:  poiDescription(p, t),
+		StyleURL:     "#" + styleID,
+		ExtendedData: typeData(t),
+		Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", p.Lng, p.Lat)},
 	}}
 }
 
@@ -391,10 +489,12 @@ func outlinePlacemark(ring [][2]float64) placemark {
 	if first[0] != last[0] || first[1] != last[1] {
 		coords = append(coords, fmt.Sprintf("%.7f,%.7f,0", first[1], first[0]))
 	}
+	const t = "Draw area"
 	return placemark{
-		Name:        "Draw area",
-		Description: "Planned campsite area",
-		StyleURL:    "#outline",
+		Name:         "Draw area",
+		Description:  "Planned campsite area · Type: " + t,
+		StyleURL:     "#outline",
+		ExtendedData: typeData(t),
 		Polygon: &polygon{
 			OuterBoundaryIs: outerBoundary{
 				LinearRing: linearRing{Coordinates: strings.Join(coords, " ")},

@@ -141,16 +141,8 @@
           Powerspot
         </button>
       </div>
-      <label class="sort-toggle" style="margin-top: 8px; display: inline-flex">
-        <input
-          :checked="radiusOverlays.wayfarer"
-          type="checkbox"
-          @change="onRadiusChange('wayfarer', ($event.target as HTMLInputElement).checked)"
-        />
-        Min POI spacing (30 m)
-      </label>
       <p v-if="placeTool && placeTool !== 'outline'" class="counts" style="margin-top: 6px">
-        Tap the map to place. Too-close spots are marked in red (under 30 m).
+        Tap the map to place. Too-close spots are marked in red (under 30 m). Turn on Min POI spacing in Ranges to show rings.
       </p>
       <p v-if="proximityWarning" class="export-warning" style="margin-top: 8px">{{ proximityWarning }}</p>
       <p v-if="campsiteNote" class="export-note" style="margin-top: 8px">{{ campsiteNote }}</p>
@@ -292,7 +284,6 @@
 </template>
 
 <script setup lang="ts">
-import { type RadiusOverlayId, type RadiusOverlayState } from "~/constants/map";
 import {
   DEFAULT_EXPORT_SETTINGS,
   filterPoisForExport,
@@ -348,11 +339,6 @@ const emit = defineEmits<{
 
 const exportMode = defineModel<boolean>("exportMode", { required: true });
 const groupByLayer = defineModel<boolean>("groupByLayer", { required: true });
-const radiusOverlays = defineModel<RadiusOverlayState>("radiusOverlays", { required: true });
-
-function onRadiusChange(id: RadiusOverlayId, checked: boolean) {
-  radiusOverlays.value = { ...radiusOverlays.value, [id]: checked };
-}
 
 const query = ref("");
 const exportOpen = ref(false);

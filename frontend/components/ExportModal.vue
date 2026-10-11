@@ -50,7 +50,7 @@
         <label class="filter">
           <input v-model="draft.format" type="radio" value="kmz" />
           KMZ
-          <span class="counts">(zipped · icons included)</span>
+          <span class="counts">(recommended · zipped · icons included)</span>
         </label>
         <label class="filter">
           <input v-model="draft.format" type="radio" value="kml" />

@@ -28,8 +28,8 @@ export interface RadiusOverlayDef {
   types: PoiType[] | null;
 }
 
-/** Campsite / export planning — Wayfarer-style spacing. */
-export const EXPORT_RADIUS_OVERLAYS: RadiusOverlayDef[] = [
+/** Map range overlays (Explore → Ranges; optional My Maps export layers). */
+export const RADIUS_OVERLAYS: RadiusOverlayDef[] = [
   {
     id: "wayfarer",
     label: "Min POI spacing",
@@ -37,10 +37,6 @@ export const EXPORT_RADIUS_OVERLAYS: RadiusOverlayDef[] = [
     color: "#e74c3c",
     types: null,
   },
-];
-
-/** General map overlays (Explore). */
-export const MAP_RADIUS_OVERLAYS: RadiusOverlayDef[] = [
   {
     id: "lure",
     label: "Lure",
@@ -56,8 +52,6 @@ export const MAP_RADIUS_OVERLAYS: RadiusOverlayDef[] = [
     types: ["gym", "super_mega_gym", "pokestop", "powerspot"],
   },
 ];
-
-export const RADIUS_OVERLAYS: RadiusOverlayDef[] = [...EXPORT_RADIUS_OVERLAYS, ...MAP_RADIUS_OVERLAYS];
 
 export type RadiusOverlayState = Record<RadiusOverlayId, boolean>;
 
