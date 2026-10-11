@@ -63,13 +63,18 @@ export const LAYER_TYPE_LABELS: Record<LayerTypeKey, string> = {
   outline: "Draw area",
 };
 
-/** Campsite planner: existing neighbors, play area, planned campsite pins. */
+/** Campsite planner: existing neighbors, routes, play area, planned campsite pins. */
 export function defaultCampsiteExportLayers(): ExportLayer[] {
   return [
     {
       id: "layer-existing",
       name: "Existing",
       types: ["gym", "pokestop", "powerspot"],
+    },
+    {
+      id: "layer-route",
+      name: "Routes",
+      types: ["route"],
     },
     {
       id: "layer-play-area",
@@ -151,6 +156,13 @@ export function normalizeExportLayers(layers: ExportLayer[] | undefined | null):
       base.push(camp);
     }
     camp.types.push(...missing);
+  }
+  // Campsite layout used to leave routes unassigned (omitted from My Maps).
+  if (!seen.has("route")) {
+    const afterExisting = base.findIndex((l) => /existing/i.test(l.name));
+    const routeLayer = { id: newLayerId(), name: "Routes", types: ["route" as LayerTypeKey] };
+    if (afterExisting >= 0) base.splice(afterExisting + 1, 0, routeLayer);
+    else base.push(routeLayer);
   }
   return base;
 }

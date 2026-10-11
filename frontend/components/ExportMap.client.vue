@@ -436,20 +436,45 @@ function currentlyShownPois(): Poi[] {
   return [...byId.values()];
 }
 
-/** Add currently shown POIs inside the drawn area to the export selection. */
+/** True if the POI start (or any route path point) lies inside the ring. */
+function poiInsideOutline(p: Poi, ring: [number, number][]) {
+  if (pointInPolygon(p.lat, p.lng, ring)) return true;
+  if (p.type !== "route" || !p.path) return false;
+  for (const [lat, lng] of p.path) {
+    if (pointInPolygon(lat, lng, ring)) return true;
+  }
+  return false;
+}
+
+/**
+ * Sync export selection to the drawn area: add shown POIs inside, drop selected
+ * ones that fall outside (so resizing the outline deselects excluded POIs).
+ */
 function selectPoisInsideOutline(ring: [number, number][]) {
   if (ring.length < 3) return;
   if (!exportMode.value) exportMode.value = true;
   const next = new Set(selected.value);
   const byId = new Map(exportPoisById.value);
   for (const p of currentlyShownPois()) {
-    if (p.type === "route") continue;
-    if (!pointInPolygon(p.lat, p.lng, ring)) continue;
+    if (!poiInsideOutline(p, ring)) continue;
     next.add(p.id);
     byId.set(p.id, p);
   }
+  for (const id of [...next]) {
+    const p = byId.get(id) ?? poiCache.get(id);
+    if (!p || p.source === "campsite") continue;
+    if (poiInsideOutline(p, ring)) continue;
+    next.delete(id);
+    byId.delete(id);
+  }
   exportPoisById.value = byId;
   selected.value = next;
+}
+
+/** Re-apply selection from the in-progress outline (after vertex/edge edits). */
+function syncSelectionFromOutlineDraft() {
+  if (outlineDraft.value.length < 3) return;
+  selectPoisInsideOutline(outlineDraft.value);
 }
 
 /** Deselect POIs named like "… Campsite - …". */
@@ -769,6 +794,7 @@ function renderOutline() {
       L.DomEvent.preventDefault(ev.originalEvent);
       outlineDraft.value = outlineDraft.value.filter((_, i) => i !== index);
       renderOutline();
+      syncSelectionFromOutlineDraft();
     });
     vertex.on("dragstart", () => {
       outlineDragging = true;
@@ -784,6 +810,7 @@ function renderOutline() {
     vertex.on("dragend", () => {
       outlineDragging = false;
       renderOutline();
+      syncSelectionFromOutlineDraft();
     });
     outlineLayer!.addLayer(vertex);
   });
@@ -870,6 +897,7 @@ function addOutlineMidpointHandles(
       outlineDragging = false;
       liveIndex = null;
       renderOutline();
+      syncSelectionFromOutlineDraft();
     });
     outlineLayer.addLayer(marker);
   }
@@ -1307,15 +1335,35 @@ function prunePoiCache(b: LatLngBounds) {
   }
 }
 
+/** Export-list membership for popup actions (independent of locked pin outline). */
+function isExportSelected(id: string) {
+  return selected.value.has(id);
+}
+
+function poiPopupContent(p: Poi) {
+  const cur = resolvePoi(p);
+  return poiPopupHtml(cur, isExportSelected(cur.id), displayType(cur));
+}
+
+/** Keep popup HTML in sync (Leaflet setContent replaces the factory and can go stale). */
+function syncPoiPopupContent(layer: Layer, p: Poi) {
+  const popup = layer.getPopup();
+  if (!popup) return;
+  suppressPopupClose = true;
+  try {
+    popup.setContent(poiPopupContent(p));
+  } finally {
+    suppressPopupClose = false;
+  }
+}
+
 function attachPoiPopup(layer: Layer, p: Poi) {
   const id = p.id;
-  layer.bindPopup(() => {
-    const cur = resolvePoi(p);
-    const selectedNow = !campsiteEdit.value && selected.value.has(id);
-    return poiPopupHtml(cur, selectedNow, displayType(cur));
-  }, POI_POPUP_OPTS);
+  layer.bindPopup(() => poiPopupContent(p), POI_POPUP_OPTS);
   layer.on("popupopen", () => {
     openPopupId = id;
+    // Recompute every open so locked/selected routes don't keep a stale "Select" label.
+    syncPoiPopupContent(layer, p);
     bindPopupToggle(layer, resolvePoi(p));
   });
   layer.on("popupclose", () => {
@@ -1326,20 +1374,30 @@ function attachPoiPopup(layer: Layer, p: Poi) {
 
 function bindPopupToggle(layer: Layer, p: Poi) {
   const popup = layer.getPopup();
-  const btn = popup?.getElement()?.querySelector("[data-poi-toggle]");
-  if (!btn || (btn as HTMLElement).dataset.bound === "1") return;
-  (btn as HTMLElement).dataset.bound = "1";
+  const root = popup?.getElement();
+  if (!root) return;
+
+  const deleteBtn = root.querySelector("[data-poi-delete]") as HTMLElement | null;
+  if (deleteBtn && deleteBtn.dataset.bound !== "1") {
+    deleteBtn.dataset.bound = "1";
+    deleteBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      layer.closePopup();
+      removeCampsitePoi(p.id);
+    });
+    return;
+  }
+
+  const btn = root.querySelector("[data-poi-toggle]") as HTMLElement | null;
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
   btn.addEventListener("click", (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
     togglePoi(p);
-    suppressPopupClose = true;
-    try {
-      popup?.setContent(poiPopupHtml(p, selected.value.has(p.id), displayType(p)));
-    } finally {
-      suppressPopupClose = false;
-    }
-    bindPopupToggle(layer, p);
+    syncPoiPopupContent(layer, p);
+    bindPopupToggle(layer, resolvePoi(p));
   });
 }
 
@@ -1503,10 +1561,9 @@ function onRoutePartClick(p: Poi, ev?: LeafletMouseEvent, exportSelect = false) 
   } finally {
     suppressPopupClose = false;
   }
-  if (exportMode.value || select) {
-    togglePoi(cur);
-  }
+  // Export toggle only via shift-click / long-press (or popup button) — not a plain click.
   if (select) {
+    togglePoi(cur);
     markers.get(cur.id)?.closePopup();
     return;
   }
@@ -1518,20 +1575,33 @@ function onRoutePartClick(p: Poi, ev?: LeafletMouseEvent, exportSelect = false) 
   });
 }
 
+function poiById(id: string): Poi | undefined {
+  return (
+    campsitePois.value.find((c) => c.id === id) ??
+    poiCache.get(id) ??
+    exportPoisById.value.get(id) ??
+    pois.value.find((p) => p.id === id)
+  );
+}
+
 function openRouteInfoPopup(id: string) {
+  const p = poiById(id);
   const start = markers.get(id);
   if (start) {
+    if (p) syncPoiPopupContent(start, p);
     start.openPopup();
+    if (p) bindPopupToggle(start, p);
     return;
   }
   const overlay = routeOverlays.get(id);
   if (!overlay) return;
   for (let i = overlay.length - 1; i >= 0; i--) {
     const layer = overlay[i];
-    if (layer.getPopup()) {
-      layer.openPopup();
-      return;
-    }
+    if (!layer.getPopup()) continue;
+    if (p) syncPoiPopupContent(layer, p);
+    layer.openPopup();
+    if (p) bindPopupToggle(layer, p);
+    return;
   }
 }
 
@@ -1692,6 +1762,8 @@ function syncMarkers() {
         if (campsiteConflicts.value.has(p.id)) showWarnCircle(endLl.lat, endLl.lng);
         else clearWarnCircle();
       });
+      // Shift-click / long-press deletes planned pins (same gesture as export select).
+      attachExportGestures(marker, () => removeCampsitePoi(p.id));
     } else {
       attachExportSelect(marker, p);
     }
@@ -1764,17 +1836,11 @@ function refreshMarker(marker: Marker, p: Poi) {
   if (L) {
     marker.setIcon(pinIcon(L, p));
   }
-  const selectedNow = markerShowsExportSelect(p);
+  const outlineSelected = markerShowsExportSelect(p);
   const el = marker.getElement()?.querySelector(".poi-marker");
-  if (el) el.classList.toggle("selected-pin", selectedNow);
-  const popup = marker.getPopup();
-  if (popup?.isOpen()) {
-    suppressPopupClose = true;
-    try {
-      popup.setContent(poiPopupHtml(p, selectedNow, displayType(p)));
-    } finally {
-      suppressPopupClose = false;
-    }
+  if (el) el.classList.toggle("selected-pin", outlineSelected);
+  if (marker.getPopup()?.isOpen()) {
+    syncPoiPopupContent(marker, p);
     bindPopupToggle(marker, p);
   }
 }
@@ -1789,18 +1855,12 @@ function refreshMarkerSelection() {
       exportPoisById.value.get(id) ??
       pois.value.find((poi) => poi.id === id);
     if (!p) continue;
-    const selectedNow = markerShowsExportSelect(p);
+    const outlineSelected = markerShowsExportSelect(p);
     marker.setIcon(pinIcon(L, p));
     const el = marker.getElement()?.querySelector(".poi-marker");
-    if (el) el.classList.toggle("selected-pin", selectedNow);
-    const popup = marker.getPopup();
-    if (popup?.isOpen()) {
-      suppressPopupClose = true;
-      try {
-        popup.setContent(poiPopupHtml(p, selectedNow, displayType(p)));
-      } finally {
-        suppressPopupClose = false;
-      }
+    if (el) el.classList.toggle("selected-pin", outlineSelected);
+    if (marker.getPopup()?.isOpen()) {
+      syncPoiPopupContent(marker, p);
       bindPopupToggle(marker, p);
     }
   }

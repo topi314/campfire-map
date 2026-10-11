@@ -63,9 +63,13 @@ export function poiPopupHtml(p: Poi, isSelected: boolean, display: PoiType = p.t
         </div>
       </div>
       <div class="poi-popup-meta">${metaLines.map((line) => escapeHtml(line)).join("<br>")}</div>
-      <button type="button" class="poi-popup-btn${isSelected ? " is-selected" : ""}" data-poi-toggle>
-        ${isSelected ? "Deselect" : "Select for export"}
-      </button>
+      ${
+        p.source === "campsite"
+          ? `<button type="button" class="poi-popup-btn poi-popup-btn-danger" data-poi-delete>Delete</button>`
+          : `<button type="button" class="poi-popup-btn${isSelected ? " is-selected" : ""}" data-poi-toggle>
+        ${isSelected ? "Remove from export" : "Select for export"}
+      </button>`
+      }
     </div>
   `;
 }
