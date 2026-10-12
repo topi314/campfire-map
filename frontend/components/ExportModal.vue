@@ -16,7 +16,7 @@
       </div>
       <p class="export-sub">
         {{ exportCount }} POI{{ exportCount === 1 ? "" : "s" }} in the export list
-        <span v-if="outlineLen >= 3"> · area</span>.
+        <span v-if="areaCount > 0"> · {{ areaCount }} area{{ areaCount === 1 ? "" : "s" }}</span>.
         Import the file in
         <a href="https://www.google.com/maps/d/" target="_blank" rel="noreferrer">Google My Maps</a>
         or open it in Google Earth.
@@ -106,11 +106,11 @@
         </button>
       </div>
 
-      <p v-if="filteredCount === 0 && outlineLen < 3" class="export-warning">No POIs match the current export settings.</p>
+      <p v-if="filteredCount === 0 && areaCount === 0" class="export-warning">No POIs match the current export settings.</p>
       <p v-else-if="myMapsWarning" class="export-warning">{{ myMapsWarning }}</p>
       <p v-else class="counts export-summary">
         {{ filteredCount }} POI{{ filteredCount === 1 ? "" : "s" }}
-        <span v-if="outlineLen >= 3"> + area</span>
+        <span v-if="areaCount > 0"> + {{ areaCount }} area{{ areaCount === 1 ? "" : "s" }}</span>
         will be exported into {{ folderEstimate }} layer{{ folderEstimate === 1 ? "" : "s" }}.
       </p>
 
@@ -118,7 +118,7 @@
         <button
           type="submit"
           class="primary btn-with-icon"
-          :disabled="exporting || (filteredCount === 0 && outlineLen < 3)"
+          :disabled="exporting || (filteredCount === 0 && areaCount === 0)"
         >
           <UiIcon name="download" />
           {{ exporting ? "Exporting…" : `Download ${draft.format.toUpperCase()}` }}
@@ -150,7 +150,7 @@ const STORAGE_KEY = "campfire-export.exportSettings";
 const props = defineProps<{
   open: boolean;
   exportPois: Poi[];
-  outline: [number, number][] | null;
+  areaCount: number;
   exporting: boolean;
 }>();
 
@@ -191,12 +191,12 @@ const typeCounts = computed(() => {
 });
 
 const exportCount = computed(() => props.exportPois.length);
-const outlineLen = computed(() => props.outline?.length ?? 0);
+const areaCount = computed(() => props.areaCount);
 const filteredPois = computed(() => filterPoisForExport(props.exportPois, draft.value));
 const filteredCount = computed(() => filteredPois.value.length);
 
 const folderEstimate = computed(() =>
-  estimateMyMapsFolders(filteredPois.value, draft.value.layers, outlineLen.value),
+  estimateMyMapsFolders(filteredPois.value, draft.value.layers, areaCount.value),
 );
 
 const myMapsWarning = computed(() => {

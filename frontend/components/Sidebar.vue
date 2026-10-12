@@ -55,6 +55,7 @@
       >
         <span class="section-chevron" aria-hidden="true" />
         Layers
+        <span class="counts">({{ enabledLayerCount }})</span>
       </button>
       <div v-show="!collapsedSections.has('layers')" class="section-body">
         <template v-for="t in layerTypes" :key="t">
@@ -101,6 +102,7 @@
       >
         <span class="section-chevron" aria-hidden="true" />
         Ranges
+        <span class="counts">({{ enabledRangeCount }})</span>
       </button>
       <div v-show="!collapsedSections.has('ranges')" class="section-body">
         <label v-for="r in radiusOverlayDefs" :key="r.id" class="filter">
@@ -263,7 +265,13 @@ const radiusOverlays = defineModel<RadiusOverlayState>("radiusOverlays", { requi
 const canLoadPowerspots = computed(() => wayfarerReady.value);
 
 const layerTypes = LAYER_TYPES;
+const enabledLayerCount = computed(
+  () => layerTypes.filter((t) => enabled.value[t]).length + (showCells.value ? 1 : 0),
+);
 const radiusOverlayDefs = RADIUS_OVERLAYS;
+const enabledRangeCount = computed(
+  () => radiusOverlayDefs.filter((r) => radiusOverlays.value[r.id]).length,
+);
 const cellLabel = computed(() => {
   const parts: string[] = [];
   if (props.l14Count > 0) parts.push(`L14 · ${props.l14Count}`);

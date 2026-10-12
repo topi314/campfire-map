@@ -6,8 +6,41 @@ import {
 } from "~/types/export";
 import { normalizePoi, type Poi } from "~/types/poi";
 
-export const PLAN_FILE_VERSION = 1;
+export const PLAN_FILE_VERSION = 2;
 export const PLAN_FILE_SUFFIX = ".campfire-plan.json";
+
+/** Default stroke/fill for map areas (matches prior single-outline blue). */
+export const DEFAULT_AREA_COLOR = "#5b8cff";
+
+/** Cycled when creating new areas so zones are visually distinct. */
+export const AREA_COLOR_PALETTE = [
+  "#5b8cff",
+  "#e85d4c",
+  "#3dbb7a",
+  "#f0a202",
+  "#9b6bff",
+  "#00b4d8",
+  "#ef476f",
+  "#06d6a0",
+] as const;
+
+export type MapArea = {
+  id: string;
+  name: string;
+  color: string; // #rrggbb
+  ring: [number, number][]; // lat,lng, ≥3
+};
+
+export function normalizeAreaColor(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_AREA_COLOR;
+  const m = raw.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  if (!m) return DEFAULT_AREA_COLOR;
+  return `#${m[1].toLowerCase()}`;
+}
+
+export function areaColorAt(index: number): string {
+  return AREA_COLOR_PALETTE[index % AREA_COLOR_PALETTE.length];
+}
 
 export interface CampfirePlan {
   version: number;
@@ -15,9 +48,44 @@ export interface CampfirePlan {
   fileName: string;
   existingPois: Poi[];
   campsitePois: Poi[];
-  outline: [number, number][] | null;
+  areas: MapArea[];
   layers: ExportLayer[];
   exportSettings: Omit<ExportSettings, "layers" | "mapName" | "fileName">;
+}
+
+function newAreaId() {
+  return `area-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function parseRing(raw: unknown): [number, number][] | null {
+  if (!Array.isArray(raw)) return null;
+  const ring = raw.map((pt) => {
+    if (!Array.isArray(pt) || pt.length < 2) throw new Error("Invalid area point");
+    return [Number(pt[0]), Number(pt[1])] as [number, number];
+  });
+  return ring.length >= 3 ? ring : null;
+}
+
+function parseAreas(o: Record<string, unknown>): MapArea[] {
+  if (Array.isArray(o.areas)) {
+    const out: MapArea[] = [];
+    for (const item of o.areas) {
+      if (!item || typeof item !== "object") continue;
+      const a = item as Record<string, unknown>;
+      const ring = parseRing(a.ring);
+      if (!ring) continue;
+      const id = typeof a.id === "string" && a.id.trim() ? a.id : newAreaId();
+      const name =
+        typeof a.name === "string" && a.name.trim() ? a.name.trim() : "Area";
+      const color = normalizeAreaColor(a.color);
+      out.push({ id, name, color, ring });
+    }
+    return out;
+  }
+  // v1: single outline → Play Area
+  const ring = parseRing(o.outline);
+  if (!ring) return [];
+  return [{ id: newAreaId(), name: "Play Area", color: DEFAULT_AREA_COLOR, ring }];
 }
 
 export function buildCampfirePlan(input: {
@@ -25,7 +93,7 @@ export function buildCampfirePlan(input: {
   fileName: string;
   existingPois: Poi[];
   campsitePois: Poi[];
-  outline: [number, number][] | null;
+  areas: MapArea[];
   settings: ExportSettings;
 }): CampfirePlan {
   const { layers, mapName: _m, fileName: _f, ...rest } = input.settings;
@@ -35,7 +103,7 @@ export function buildCampfirePlan(input: {
     fileName: input.fileName,
     existingPois: input.existingPois,
     campsitePois: input.campsitePois,
-    outline: input.outline,
+    areas: input.areas.filter((a) => a.ring.length >= 3),
     layers: normalizeExportLayers(layers),
     exportSettings: rest,
   };
@@ -44,8 +112,9 @@ export function buildCampfirePlan(input: {
 export function parseCampfirePlan(raw: unknown): CampfirePlan {
   if (!raw || typeof raw !== "object") throw new Error("Invalid plan file");
   const o = raw as Record<string, unknown>;
-  if (o.version !== PLAN_FILE_VERSION) {
-    throw new Error(`Unsupported plan version (expected ${PLAN_FILE_VERSION})`);
+  const version = o.version;
+  if (version !== 1 && version !== PLAN_FILE_VERSION) {
+    throw new Error(`Unsupported plan version (expected 1 or ${PLAN_FILE_VERSION})`);
   }
   if (!Array.isArray(o.existingPois) || !Array.isArray(o.campsitePois)) {
     throw new Error("Plan must include existingPois and campsitePois arrays");
@@ -54,15 +123,7 @@ export function parseCampfirePlan(raw: unknown): CampfirePlan {
   const campsitePois = (o.campsitePois as Poi[]).map((p) =>
     normalizePoi({ ...p, source: "campsite" }),
   );
-  let outline: [number, number][] | null = null;
-  if (o.outline != null) {
-    if (!Array.isArray(o.outline)) throw new Error("outline must be an array or null");
-    outline = o.outline.map((pt) => {
-      if (!Array.isArray(pt) || pt.length < 2) throw new Error("Invalid outline point");
-      return [Number(pt[0]), Number(pt[1])] as [number, number];
-    });
-    if (outline.length < 3) outline = null;
-  }
+  const areas = parseAreas(o);
   const layers = normalizeExportLayers(o.layers as ExportLayer[] | undefined);
   const saved = (o.exportSettings || {}) as Partial<ExportSettings>;
   const exportSettings: CampfirePlan["exportSettings"] = {
@@ -86,7 +147,7 @@ export function parseCampfirePlan(raw: unknown): CampfirePlan {
     fileName: typeof o.fileName === "string" && o.fileName.trim() ? o.fileName : DEFAULT_EXPORT_SETTINGS.fileName,
     existingPois,
     campsitePois,
-    outline,
+    areas,
     layers,
     exportSettings,
   };

@@ -13,7 +13,7 @@
           aria-label="Open work"
           @click="triggerImport"
         >
-          <UiIcon name="folder" />
+          <UiIcon name="folderOpen" />
         </button>
         <button
           type="button"
@@ -22,162 +22,231 @@
           aria-label="Save work"
           @click="savePlan"
         >
-          <UiIcon name="download" />
+          <UiIcon name="save" />
         </button>
         <button
           type="button"
-          class="sidebar-settings btn-with-icon"
-          title="Close export panel"
-          @click="closeExport"
-        >
-          <UiIcon name="check" />
-          Done
-        </button>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>Selection</h2>
-      <p class="counts">
-        {{ selected.size }} selected · {{ campsitePois.length }} planned
-        <span v-if="outline && outline.length >= 3"> · area</span>
-        <template v-if="!campsiteEdit"> · {{ visiblePois.length }} in view</template>
-      </p>
-      <div class="btn-row btn-row-nowrap">
-        <button
-          type="button"
-          class="btn-with-icon"
-          :class="{ primary: placeTool === 'outline' }"
-          @click="setTool(placeTool === 'outline' ? null : 'outline')"
-        >
-          <UiIcon name="polygon" />
-          {{ placeTool === 'outline' ? "Drawing…" : "Draw area" }}
-        </button>
-        <button
-          type="button"
-          class="btn-with-icon"
-          :disabled="!outline?.length"
-          @click="emit('clear-outline')"
-        >
-          <UiIcon name="trash" />
-          Clear
-        </button>
-        <button
-          v-if="campsiteEdit"
-          type="button"
-          class="btn-with-icon"
-          @click="emit('exit-campsite')"
-        >
-          <UiIcon name="unlock" />
-          Unlock
-        </button>
-        <button
-          v-else
-          type="button"
-          class="btn-with-icon"
-          @click="emit('enter-campsite')"
-        >
-          <UiIcon name="lock" />
-          Lock
-        </button>
-      </div>
-      <div class="btn-row" style="margin-top: 6px">
-        <button
-          type="button"
-          class="btn-with-icon"
+          class="sidebar-icon-btn"
+          title="Clear selection"
+          aria-label="Clear selection"
           :disabled="!selected.size"
           @click="emit('clear-selection')"
         >
           <UiIcon name="clear" />
-          Clear selection
-        </button>
-      </div>
-      <div v-if="campsiteLabeledSelectedCount" class="btn-row" style="margin-top: 6px">
-        <button type="button" class="btn-with-icon" @click="emit('exclude-campsite-pois')">
-          <UiIcon name="ban" />
-          Exclude campsite POIs ({{ campsiteLabeledSelectedCount }})
-        </button>
-        <button type="button" class="btn-with-icon" @click="emit('convert-campsite-pois')">
-          <UiIcon name="convert" />
-          Convert campsite POIs to planned
-        </button>
-      </div>
-      <p v-if="placeTool === 'outline'" class="counts" style="margin-top: 6px">
-        Click to add points, drag corners to move, drag or click a mid-edge handle to split a side. Double-click a corner to remove. Finish near the first point or double-click the map — POIs inside are selected. For “… Campsite - …” names: exclude from selection, or convert campsite POIs to planned so you can move them.
-      </p>
-      <p v-else-if="campsiteEdit" class="counts" style="margin-top: 6px">
-        Map locked — only selected and planned POIs are shown; no new fetches.
-      </p>
-    </div>
-
-    <div class="section">
-      <h2>Place</h2>
-      <div class="btn-row">
-        <button
-          type="button"
-          class="btn-with-icon"
-          :class="{ primary: placeTool === 'pokestop' }"
-          @click="setTool(placeTool === 'pokestop' ? null : 'pokestop')"
-        >
-          <TypeIcon type="pokestop" />
-          PokéStop
         </button>
         <button
           type="button"
-          class="btn-with-icon"
-          :class="{ primary: placeTool === 'gym' }"
-          @click="setTool(placeTool === 'gym' ? null : 'gym')"
+          class="primary sidebar-export btn-with-icon"
+          :disabled="!canExport"
+          title="Export to Google My Maps"
+          @click="exportOpen = true"
         >
-          <TypeIcon type="gym" />
-          Gym
-        </button>
-        <button
-          type="button"
-          class="btn-with-icon"
-          :class="{ primary: placeTool === 'powerspot' }"
-          @click="setTool(placeTool === 'powerspot' ? null : 'powerspot')"
-        >
-          <TypeIcon type="powerspot" />
-          Powerspot
+          <UiIcon name="export" />
+          Export
         </button>
       </div>
-      <p v-if="placeTool && placeTool !== 'outline'" class="counts" style="margin-top: 6px">
-        Tap the map to place. Too-close spots are marked in red (under 30 m). Turn on Min POI spacing in Ranges to show rings.
-      </p>
-      <p v-if="proximityWarning" class="export-warning" style="margin-top: 8px">{{ proximityWarning }}</p>
-      <p v-if="campsiteNote" class="export-note" style="margin-top: 8px">{{ campsiteNote }}</p>
     </div>
 
-    <div class="section section-search">
-      <input v-model="query" class="search" placeholder="Search export POIs" />
-    </div>
-
-    <div class="poi-lists">
-      <div class="poi-list-section export-panel">
-        <div class="export-panel-header">
-          <div class="export-panel-heading">
-            <h3 class="poi-list-heading">
-              Export list
-              <span class="counts">({{ listed.length }})</span>
-            </h3>
-            <label class="sort-toggle">
-              <input v-model="groupByLayer" type="checkbox" />
-              Group by layer
-            </label>
-          </div>
-          <div class="export-panel-actions">
-            <button
-              type="button"
-              class="primary export-panel-btn btn-with-icon"
-              :disabled="!canExport"
-              @click="exportOpen = true"
-            >
-              <UiIcon name="export" />
-              Export
-            </button>
+    <div class="section" :class="{ 'section-collapsed': collapsedSections.has('area') }">
+      <button
+        type="button"
+        class="section-toggle"
+        :aria-expanded="!collapsedSections.has('area')"
+        @click="toggleSection('area')"
+      >
+        <span class="section-chevron" aria-hidden="true" />
+        Areas
+        <span class="counts">({{ areas.length }})</span>
+      </button>
+      <div v-show="!collapsedSections.has('area')" class="section-body">
+        <div class="btn-row btn-row-nowrap">
+          <button
+            type="button"
+            class="btn-with-icon"
+            :class="{ primary: drawingNewArea }"
+            @click="onDrawAreaClick"
+          >
+            <UiIcon :name="drawingNewArea ? 'check' : 'polygon'" />
+            {{ drawingNewArea ? "Done" : "Add area" }}
+          </button>
+          <button
+            v-if="campsiteEdit"
+            type="button"
+            class="btn-with-icon"
+            @click="emit('exit-campsite')"
+          >
+            <UiIcon name="unlock" />
+            Unlock
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn-with-icon"
+            @click="emit('enter-campsite')"
+          >
+            <UiIcon name="lock" />
+            Lock
+          </button>
+        </div>
+        <p v-if="campsiteEdit" class="counts" style="margin-top: 6px">
+          Map locked — only selected and planned POIs are shown; no new fetches.
+        </p>
+        <div v-if="areas.length" class="area-list">
+          <div
+            v-for="area in areas"
+            :key="area.id"
+            class="area-item"
+            :class="{ active: editingAreaId === area.id }"
+          >
+            <div class="area-name-row">
+              <input
+                class="area-color"
+                type="color"
+                :value="area.color || '#5b8cff'"
+                :aria-label="`Color for ${area.name}`"
+                title="Area color"
+                @input="onAreaColor(area.id, ($event.target as HTMLInputElement).value)"
+                @click.stop
+              />
+              <input
+                class="area-name"
+                :value="area.name"
+                :aria-label="`Rename ${area.name}`"
+                @change="onRenameArea(area.id, ($event.target as HTMLInputElement).value)"
+                @click.stop
+              />
+            </div>
+            <div class="area-actions">
+              <button type="button" class="btn-with-icon" title="Focus" @click="emit('focus-area', area.id)">
+                Focus
+              </button>
+              <button
+                type="button"
+                class="btn-with-icon"
+                :class="{ primary: editingAreaId === area.id }"
+                :title="editingAreaId === area.id ? 'Finish editing' : 'Edit shape'"
+                @click="editingAreaId === area.id ? emit('finish-area-edit') : emit('edit-area', area.id)"
+              >
+                {{ editingAreaId === area.id ? "Done" : "Edit" }}
+              </button>
+              <button
+                type="button"
+                class="btn-with-icon"
+                title="Select POIs inside"
+                @click="emit('select-pois-in-area', area.id)"
+              >
+                Select POIs
+              </button>
+              <button
+                type="button"
+                class="poi-remove"
+                title="Delete area"
+                @click.stop="emit('delete-area', area.id)"
+              >
+                ×
+              </button>
+            </div>
           </div>
         </div>
-        <div class="poi-list">
+      </div>
+    </div>
+
+    <div class="section" :class="{ 'section-collapsed': collapsedSections.has('place') }">
+      <button
+        type="button"
+        class="section-toggle"
+        :aria-expanded="!collapsedSections.has('place')"
+        @click="toggleSection('place')"
+      >
+        <span class="section-chevron" aria-hidden="true" />
+        Place
+        <span class="counts">({{ campsitePois.length }} planned)</span>
+      </button>
+      <div v-show="!collapsedSections.has('place')" class="section-body">
+        <div class="btn-row btn-row-nowrap">
+          <button
+            type="button"
+            class="btn-with-icon"
+            :class="{ primary: placeTool === 'pokestop' }"
+            @click="setTool(placeTool === 'pokestop' ? null : 'pokestop')"
+          >
+            <TypeIcon type="pokestop" />
+            PokéStop
+          </button>
+          <button
+            type="button"
+            class="btn-with-icon"
+            :class="{ primary: placeTool === 'gym' }"
+            @click="setTool(placeTool === 'gym' ? null : 'gym')"
+          >
+            <TypeIcon type="gym" />
+            Gym
+          </button>
+          <button
+            type="button"
+            class="btn-with-icon"
+            :class="{ primary: placeTool === 'powerspot' }"
+            @click="setTool(placeTool === 'powerspot' ? null : 'powerspot')"
+          >
+            <TypeIcon type="powerspot" />
+            Powerspot
+          </button>
+        </div>
+        <template v-if="campsiteLabeledSelectedCount">
+          <p class="counts" style="margin-top: 8px">
+            Selected campsite POIs ({{ campsiteLabeledSelectedCount }})
+          </p>
+          <div class="btn-row btn-row-nowrap" style="margin-top: 6px">
+            <button
+              type="button"
+              class="btn-with-icon"
+              title="Remove those POIs from the export selection"
+              @click="emit('exclude-campsite-pois')"
+            >
+              <UiIcon name="ban" />
+              Deselect them
+            </button>
+            <button
+              type="button"
+              class="btn-with-icon"
+              title="Turn those POIs into movable planned pins you can place"
+              @click="emit('convert-campsite-pois')"
+            >
+              <UiIcon name="convert" />
+              Make planned
+            </button>
+          </div>
+        </template>
+        <p v-if="placeTool && placeTool !== 'outline'" class="counts" style="margin-top: 6px">
+          Tap the map to place. Too-close spots are marked in red (under 30 m). Turn on Min POI spacing in Ranges to show rings.
+        </p>
+        <p v-if="proximityWarning" class="export-warning" style="margin-top: 8px">{{ proximityWarning }}</p>
+        <p v-if="campsiteNote" class="export-note" style="margin-top: 8px">{{ campsiteNote }}</p>
+      </div>
+    </div>
+
+    <div class="poi-lists" :class="{ 'poi-lists-collapsed': collapsedSections.has('exportList') }">
+      <div class="poi-list-section">
+        <div class="poi-list-heading-row">
+          <button
+            type="button"
+            class="section-toggle section-toggle-inline"
+            :aria-expanded="!collapsedSections.has('exportList')"
+            @click="toggleSection('exportList')"
+          >
+            <span class="section-chevron" aria-hidden="true" />
+            Export list
+            <span class="counts">({{ listed.length }})</span>
+          </button>
+          <label v-show="!collapsedSections.has('exportList')" class="sort-toggle">
+            <input v-model="groupByLayer" type="checkbox" />
+            Group by layer
+          </label>
+        </div>
+        <div v-show="!collapsedSections.has('exportList')" class="section section-search">
+          <input v-model="query" class="search" placeholder="Search export POIs" />
+        </div>
+        <div v-show="!collapsedSections.has('exportList')" class="poi-list">
           <template v-if="groupByLayer">
             <template v-for="group in listedGroups" :key="group.key">
               <button
@@ -275,7 +344,7 @@
     <ExportModal
       :open="exportOpen"
       :export-pois="allExportPois"
-      :outline="outline"
+      :area-count="exportableAreaCount"
       :exporting="exporting"
       @close="exportOpen = false"
       @export="runExport"
@@ -297,6 +366,7 @@ import {
   downloadCampfirePlan,
   readCampfirePlanFile,
   type CampfirePlan,
+  type MapArea,
 } from "~/types/plan";
 import {
   LAYER_TYPES,
@@ -304,7 +374,6 @@ import {
   isCampsiteLabeledPoi,
   isInactivePowerspot,
   poiDisplayType,
-  poiLayerVisible,
   type Poi,
   type PoiType,
 } from "~/types/poi";
@@ -315,10 +384,10 @@ const props = defineProps<{
   campsitePois: Poi[];
   selected: Set<string>;
   enabled: Record<PoiType, boolean>;
-  showInactivePowerspots: boolean;
   campsiteEdit: boolean;
   placeTool: PlaceTool;
-  outline: [number, number][] | null;
+  areas: MapArea[];
+  editingAreaId: string | null;
   proximityWarning: string;
   campsiteNote: string;
 }>();
@@ -328,7 +397,13 @@ const emit = defineEmits<{
   "enter-campsite": [];
   "exit-campsite": [];
   "set-place-tool": [tool: PlaceTool];
-  "clear-outline": [];
+  "edit-area": [id: string];
+  "finish-area-edit": [];
+  "rename-area": [id: string, name: string];
+  "set-area-color": [id: string, color: string];
+  "delete-area": [id: string];
+  "focus-area": [id: string];
+  "select-pois-in-area": [id: string];
   "clear-selection": [];
   "exclude-campsite-pois": [];
   "convert-campsite-pois": [];
@@ -343,15 +418,11 @@ const groupByLayer = defineModel<boolean>("groupByLayer", { required: true });
 const query = ref("");
 const exportOpen = ref(false);
 const exporting = ref(false);
+type ExportSidebarSection = "area" | "place" | "exportList";
 const collapsedGroups = ref<Set<string>>(new Set());
+const collapsedSections = ref<Set<ExportSidebarSection>>(new Set());
 const fileInput = ref<HTMLInputElement | null>(null);
 const config = useRuntimeConfig();
-
-const visiblePois = computed(() =>
-  props.pois.filter((p) =>
-    poiLayerVisible(p, props.enabled, { showInactivePowerspots: props.showInactivePowerspots }),
-  ),
-);
 
 const campsiteLabeledSelectedCount = computed(
   () => props.exportPois.filter((p) => isCampsiteLabeledPoi(p)).length,
@@ -365,8 +436,11 @@ const allExportPois = computed(() => [
   ...props.campsitePois.map((p) => ({ ...p, source: "campsite" as const })),
 ]);
 
+const exportableAreas = computed(() => props.areas.filter((a) => a.ring.length >= 3));
+const exportableAreaCount = computed(() => exportableAreas.value.length);
+
 const canExport = computed(
-  () => allExportPois.value.length > 0 || (props.outline != null && props.outline.length >= 3),
+  () => allExportPois.value.length > 0 || exportableAreaCount.value > 0,
 );
 
 const listed = computed(() => {
@@ -410,6 +484,13 @@ function campListType(p: Poi): PoiType {
   return t === "super_mega_gym" ? "gym" : t;
 }
 
+function toggleSection(section: ExportSidebarSection) {
+  const next = new Set(collapsedSections.value);
+  if (next.has(section)) next.delete(section);
+  else next.add(section);
+  collapsedSections.value = next;
+}
+
 function toggleGroup(key: string) {
   const next = new Set(collapsedGroups.value);
   if (next.has(key)) next.delete(key);
@@ -417,15 +498,31 @@ function toggleGroup(key: string) {
   collapsedGroups.value = next;
 }
 
-function closeExport() {
-  if (props.campsiteEdit) emit("exit-campsite");
-  exportMode.value = false;
-}
-
 function setTool(tool: PlaceTool) {
   // Place tools lock the map; draw area does not (use Lock map separately).
   if (tool && tool !== "outline" && !props.campsiteEdit) emit("enter-campsite");
   emit("set-place-tool", tool);
+}
+
+const drawingNewArea = computed(
+  () => props.placeTool === "outline" && !props.editingAreaId,
+);
+
+/** Finish a new area draw with Done; otherwise start a fresh draw. */
+function onDrawAreaClick() {
+  if (drawingNewArea.value) {
+    emit("finish-area-edit");
+    return;
+  }
+  setTool("outline");
+}
+
+function onRenameArea(id: string, name: string) {
+  emit("rename-area", id, name);
+}
+
+function onAreaColor(id: string, color: string) {
+  emit("set-area-color", id, color);
 }
 
 function onListClick(p: Poi) {
@@ -468,7 +565,7 @@ function savePlan() {
     fileName: settings.fileName,
     existingPois: props.exportPois,
     campsitePois: props.campsitePois,
-    outline: props.outline,
+    areas: props.areas,
     settings,
   });
   downloadCampfirePlan(plan, sanitizeFileName(settings.fileName));
@@ -485,7 +582,7 @@ async function onImportFile(ev: Event) {
   if (!file) return;
   try {
     const plan = await readCampfirePlanFile(file);
-    if (props.exportPois.length || props.campsitePois.length) {
+    if (props.exportPois.length || props.campsitePois.length || props.areas.length) {
       if (!confirm("Replace the current plan with this file?")) return;
     }
     emit("import-plan", plan);
@@ -503,7 +600,7 @@ async function exportBlob(settings: ExportSettings) {
       name: settings.mapName,
       format: settings.format,
       pois,
-      outline: props.outline && props.outline.length >= 3 ? props.outline : null,
+      areas: exportableAreas.value.map(({ name, color, ring }) => ({ name, color, ring })),
       layers: settings.layers.map(({ name, types }) => ({ name, types })),
     }),
   });

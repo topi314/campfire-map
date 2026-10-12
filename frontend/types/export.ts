@@ -79,7 +79,7 @@ export const LAYER_TYPE_LABELS: Record<LayerTypeKey, string> = {
   campsite_gym: "Campsite Gyms",
   campsite_pokestop: "Campsite PokéStops",
   campsite_powerspot: "Campsite Powerspots",
-  outline: "Draw area",
+  outline: "Areas",
   range_wayfarer: "Range · Min POI spacing (30 m)",
   range_lure: "Range · Lure (40 m)",
   range_interaction: "Range · Interaction (80 m)",
@@ -108,7 +108,7 @@ export function rangeDefForLayerType(t: LayerTypeKey): RadiusOverlayDef | null {
   return RADIUS_OVERLAYS.find((d) => d.id === id) ?? null;
 }
 
-/** Campsite planner: existing neighbors, routes, play area, planned campsite pins. */
+/** Campsite planner: existing neighbors, routes, areas, planned campsite pins. */
 export function defaultCampsiteExportLayers(): ExportLayer[] {
   return [
     {
@@ -123,7 +123,7 @@ export function defaultCampsiteExportLayers(): ExportLayer[] {
     },
     {
       id: "layer-play-area",
-      name: "Play Area",
+      name: "Areas",
       types: ["outline"],
     },
     {
@@ -214,6 +214,12 @@ export function normalizeExportLayers(layers: ExportLayer[] | undefined | null):
     if (afterExisting >= 0) base.splice(afterExisting + 1, 0, routeLayer);
     else base.push(routeLayer);
   }
+  // Outline layer was formerly labeled "Play Area".
+  for (const layer of base) {
+    if (layer.name === "Play Area" && layer.types.includes("outline")) {
+      layer.name = "Areas";
+    }
+  }
   return base;
 }
 
@@ -283,7 +289,7 @@ export function filterPoisForExport(pois: Poi[], settings: ExportSettings): Poi[
 export function estimateMyMapsFolders(
   pois: Poi[],
   layers: ExportLayer[],
-  outlineLen: number,
+  areaCount: number,
 ): number {
   const counts = new Map<string, number>();
   for (const layer of layers) {
@@ -302,9 +308,9 @@ export function estimateMyMapsFolders(
     if (p.type === "route" && p.path && p.path.length > 1) n = 3;
     counts.set(layerId, (counts.get(layerId) || 0) + n);
   }
-  if (outlineLen >= 3) {
+  if (areaCount > 0) {
     const layerId = typeToLayer.get("outline");
-    if (layerId) counts.set(layerId, (counts.get(layerId) || 0) + 1);
+    if (layerId) counts.set(layerId, (counts.get(layerId) || 0) + areaCount);
   }
   for (const t of RANGE_LAYER_TYPES) {
     const layerId = typeToLayer.get(t);

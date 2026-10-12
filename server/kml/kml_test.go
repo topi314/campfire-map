@@ -23,7 +23,10 @@ func TestBuildKMZ(t *testing.T) {
 			{Name: "Ranges", Types: []string{"range_wayfarer"}},
 			{Name: "Campsite", Types: []string{"campsite_gym", "campsite_pokestop", "campsite_powerspot", "outline"}},
 		},
-		Outline: [][2]float64{{52.5, 13.4}, {52.51, 13.4}, {52.51, 13.41}},
+		Areas: []ExportArea{
+			{Name: "Play Area", Color: "#5b8cff", Ring: [][2]float64{{52.5, 13.4}, {52.51, 13.4}, {52.51, 13.41}}},
+			{Name: "Staging", Color: "#e85d4c", Ring: [][2]float64{{52.52, 13.4}, {52.53, 13.4}, {52.53, 13.41}}},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -51,16 +54,17 @@ func TestBuildKMZ(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"Existing", "Campsite", "Ranges",
-		"Gym One", "Mega Gate", "Loop", "Planned Stop", "Draw area",
+		"Gym One", "Mega Gate", "Loop", "Planned Stop", "Play Area", "Staging",
 		"Min POI spacing",
 		"<LineString>", "<Point>", "<Polygon>", "#super_mega_gym", "files/gym.png",
 		`#campsite_pokestop`, `files/campsite_pokestop.png`,
-		"route-line", "#outline", `#range_wayfarer`,
+		"route-line", "#outline", `#outline_e85d4c`, `#range_wayfarer`,
 		`<Style id="gym-normal"`, `<StyleMap id="gym"`,
 		`<Style id="campsite_pokestop-normal"`, `<StyleMap id="campsite_pokestop"`,
 		`<Style id="range_wayfarer-normal"`, `<StyleMap id="range_wayfarer"`,
+		`<StyleMap id="outline_e85d4c"`,
 		`<Data name="Type">`, "<value>Gym</value>", "<value>Campsite PokéStop</value>",
-		"<value>Min POI spacing</value>", "<value>Draw area</value>",
+		"<value>Min POI spacing</value>", "<value>Play Area</value>", "<value>Staging</value>",
 	} {
 		if !strings.Contains(kmlDoc, needle) {
 			t.Errorf("kml missing %q", needle)
@@ -80,11 +84,25 @@ func TestBuildKMZ(t *testing.T) {
 	if !folderContains(kmlDoc, "Existing", "#route") || !folderContains(kmlDoc, "Existing", "#route-line") || !folderContains(kmlDoc, "Existing", "#route-end") {
 		t.Error("route start/path/end should all be in Existing folder")
 	}
-	if !folderContains(kmlDoc, "Campsite", "Planned Stop") || !folderContains(kmlDoc, "Campsite", "Draw area") {
-		t.Error("campsite POI and outline should be in Campsite folder")
+	if !folderContains(kmlDoc, "Campsite", "Planned Stop") || !folderContains(kmlDoc, "Campsite", "Play Area") || !folderContains(kmlDoc, "Campsite", "Staging") {
+		t.Error("campsite POI and areas should be in Campsite folder")
 	}
 	if !folderContains(kmlDoc, "Ranges", "#range_wayfarer") {
 		t.Error("range circles should be in Ranges folder")
+	}
+}
+
+func TestLegacyOutlineExport(t *testing.T) {
+	data, err := BuildKML("legacy", nil, ExportOptions{
+		Layers:  []ExportLayer{{Name: "Areas", Types: []string{"outline"}}},
+		Outline: [][2]float64{{1, 2}, {1.1, 2}, {1.1, 2.1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "Play Area") || !strings.Contains(s, "<Polygon>") || !strings.Contains(s, "Areas") {
+		t.Fatalf("expected Areas folder + Play Area placemark, got:\n%s", s[:min(400, len(s))])
 	}
 }
 

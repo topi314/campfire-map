@@ -214,10 +214,11 @@ func wayfarerCreds(r *http.Request) wayfarer.Creds {
 }
 
 type exportReq struct {
-	Name    string           `json:"name"`
-	Format  string           `json:"format"`
-	POIs    []poi.POI        `json:"pois"`
-	Outline [][2]float64     `json:"outline,omitempty"`
+	Name    string            `json:"name"`
+	Format  string            `json:"format"`
+	POIs    []poi.POI         `json:"pois"`
+	Areas   []kml.ExportArea  `json:"areas,omitempty"`
+	Outline [][2]float64      `json:"outline,omitempty"` // legacy single ring
 	Layers  []kml.ExportLayer `json:"layers,omitempty"`
 }
 
@@ -228,8 +229,18 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	hasOutline := len(req.Outline) >= 3
-	if len(req.POIs) == 0 && !hasOutline {
+	areas := req.Areas
+	if len(areas) == 0 && len(req.Outline) >= 3 {
+		areas = []kml.ExportArea{{Name: "Play Area", Ring: req.Outline}}
+	}
+	hasAreas := false
+	for _, a := range areas {
+		if len(a.Ring) >= 3 {
+			hasAreas = true
+			break
+		}
+	}
+	if len(req.POIs) == 0 && !hasAreas {
 		http.Error(w, "no pois selected", http.StatusBadRequest)
 		return
 	}
@@ -241,7 +252,7 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "kmz"
 	}
-	opts := kml.ExportOptions{Layers: req.Layers, Outline: req.Outline}
+	opts := kml.ExportOptions{Layers: req.Layers, Areas: areas, Outline: req.Outline}
 	var (
 		data     []byte
 		err      error

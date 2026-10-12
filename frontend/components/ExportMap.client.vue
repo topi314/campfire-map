@@ -57,21 +57,27 @@
           v-model:export-mode="exportMode"
           v-model:group-by-layer="groupByLayer"
           :enabled="enabled"
-          :show-inactive-powerspots="showInactivePowerspots"
           :pois="displayPois"
           :export-pois="exportPois"
           :campsite-pois="campsitePois"
           :selected="selected"
           :campsite-edit="campsiteEdit"
           :place-tool="placeTool"
-          :outline="outline"
+          :areas="areas"
+          :editing-area-id="editingAreaId"
           :proximity-warning="proximityWarning"
           :campsite-note="campsiteNote"
           @toggle="togglePoi"
           @enter-campsite="enterCampsiteEdit"
           @exit-campsite="exitCampsiteEdit"
           @set-place-tool="setPlaceTool"
-          @clear-outline="clearOutline"
+          @edit-area="editArea"
+          @finish-area-edit="finishAreaEdit"
+          @rename-area="renameArea"
+          @set-area-color="setAreaColor"
+          @delete-area="deleteArea"
+          @focus-area="focusArea"
+          @select-pois-in-area="selectPoisInArea"
           @clear-selection="clearSelection"
           @exclude-campsite-pois="excludeCampsiteLabeledPois"
           @convert-campsite-pois="convertCampsiteLabeledToPlanned"
@@ -99,7 +105,12 @@ import {
 } from "~/constants/map";
 import { getBaseMap, HYBRID_BASE_LAYERS, isHybridBaseMap, withCartoApiKey } from "~/constants/baseMaps";
 import type { PlaceResult } from "~/composables/usePlaceSearch";
-import type { CampfirePlan } from "~/types/plan";
+import {
+  areaColorAt,
+  normalizeAreaColor,
+  type CampfirePlan,
+  type MapArea,
+} from "~/types/plan";
 import {
   DEFAULT_EXPORT_SETTINGS,
   normalizeExportLayers,
@@ -165,12 +176,14 @@ const groupByLayer = ref(storedUi.groupByLayer);
 const sheetTab = ref<"explore" | "export">(exportMode.value ? "export" : "explore");
 const campsiteEdit = ref(false);
 const campsitePois = ref<Poi[]>([]);
-const outline = ref<[number, number][] | null>(null);
+const areas = ref<MapArea[]>([]);
 const placeTool = ref<PlaceTool>(null);
 const proximityWarning = ref("");
 const campsiteNote = ref("");
 const radiusOverlays = ref<RadiusOverlayState>({ ...storedUi.radiusOverlays });
-const outlineDraft = ref<[number, number][]>([]);
+const areaDraft = ref<[number, number][]>([]);
+/** When set, draft edits that area; null means drawing a new area. */
+const editingAreaId = ref<string | null>(null);
 const campsiteConflicts = ref<Set<string>>(new Set());
 let campsiteNoteTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -248,8 +261,8 @@ let suppressPopupClose = false;
 let pendingPowerspotEnable = false;
 let warnCircle: CircleMarker | null = null;
 let draggingCampsiteId: string | null = null;
-/** Selection before draw-area edits; restored if the draft is cancelled. */
-let outlineSelectionSnapshot: { selected: Set<string>; byId: Map<string, Poi> } | null = null;
+/** Geometry before area edits; restored if the draft is cancelled. */
+let areaGeometrySnapshot: { id: string | null; ring: [number, number][] } | null = null;
 
 onMounted(async () => {
   const leaflet = await import("leaflet");
@@ -321,7 +334,7 @@ watch(
 watch(campsitePois, () => {
   syncMarkers();
 }, { deep: true });
-watch(outline, () => {
+watch(areas, () => {
   if (placeTool.value === "outline") return;
   renderOutline();
 }, { deep: true });
@@ -405,31 +418,70 @@ function exitCampsiteEdit() {
   if (was) scheduleLoad();
 }
 
-function snapshotOutlineSelection() {
-  outlineSelectionSnapshot = {
-    selected: new Set(selected.value),
-    byId: new Map(exportPoisById.value),
+function snapshotAreaGeometry() {
+  areaGeometrySnapshot = {
+    id: editingAreaId.value,
+    ring: areaDraft.value.map((p) => [p[0], p[1]] as [number, number]),
   };
 }
 
-function restoreOutlineSelectionSnapshot() {
-  if (!outlineSelectionSnapshot) return;
-  selected.value = new Set(outlineSelectionSnapshot.selected);
-  exportPoisById.value = new Map(outlineSelectionSnapshot.byId);
-  outlineSelectionSnapshot = null;
+function restoreAreaGeometrySnapshot() {
+  if (!areaGeometrySnapshot) return;
+  const { id, ring } = areaGeometrySnapshot;
+  areaGeometrySnapshot = null;
+  if (id) {
+    areas.value = areas.value.map((a) =>
+      a.id === id ? { ...a, ring: ring.map((p) => [p[0], p[1]] as [number, number]) } : a,
+    );
+  }
 }
 
-/** Commits draft area if it has ≥3 points. Returns whether a new area was saved. */
+function newAreaId() {
+  return `area-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function nextAreaName() {
+  const used = new Set(areas.value.map((a) => a.name));
+  if (!used.has("Play Area")) return "Play Area";
+  let n = 2;
+  while (used.has(`Area ${n}`)) n++;
+  return `Area ${n}`;
+}
+
+function draftAreaColor(): string {
+  if (editingAreaId.value) {
+    const area = areas.value.find((a) => a.id === editingAreaId.value);
+    if (area) return normalizeAreaColor(area.color);
+  }
+  return areaColorAt(areas.value.length);
+}
+
+/** Commits draft area if it has ≥3 points. Returns whether an area was saved. */
 function commitOutlineDraft() {
-  if (outlineDraft.value.length >= 3) {
-    outline.value = outlineDraft.value.map((p) => [p[0], p[1]] as [number, number]);
-    outlineDraft.value = [];
-    selectPoisInsideOutline(outline.value);
-    outlineSelectionSnapshot = null;
+  if (areaDraft.value.length >= 3) {
+    const ring = areaDraft.value.map((p) => [p[0], p[1]] as [number, number]);
+    const id = editingAreaId.value;
+    if (id) {
+      areas.value = areas.value.map((a) => (a.id === id ? { ...a, ring } : a));
+    } else {
+      areas.value = [
+        ...areas.value,
+        {
+          id: newAreaId(),
+          name: nextAreaName(),
+          color: draftAreaColor(),
+          ring,
+        },
+      ];
+    }
+    areaDraft.value = [];
+    editingAreaId.value = null;
+    areaGeometrySnapshot = null;
     return true;
   }
-  outlineDraft.value = [];
-  restoreOutlineSelectionSnapshot();
+  areaDraft.value = [];
+  restoreAreaGeometrySnapshot();
+  editingAreaId.value = null;
   return false;
 }
 
@@ -461,34 +513,38 @@ function poiInsideOutline(p: Poi, ring: [number, number][]) {
 }
 
 /**
- * Sync export selection to the drawn area: add shown POIs inside, drop selected
- * ones that fall outside (so resizing the outline deselects excluded POIs).
+ * Toggle shown POIs inside a ring: if all are already selected, remove only those;
+ * otherwise add them. Other areas’ selections are left alone.
  */
-function selectPoisInsideOutline(ring: [number, number][]) {
+function togglePoisInsideOutline(ring: [number, number][]) {
   if (ring.length < 3) return;
   if (!exportMode.value) exportMode.value = true;
+  const inside = currentlyShownPois().filter((p) => poiInsideOutline(p, ring));
+  if (!inside.length) return;
+  const allSelected = inside.every((p) => selected.value.has(p.id));
   const next = new Set(selected.value);
   const byId = new Map(exportPoisById.value);
-  for (const p of currentlyShownPois()) {
-    if (!poiInsideOutline(p, ring)) continue;
-    next.add(p.id);
-    byId.set(p.id, p);
-  }
-  for (const id of [...next]) {
-    const p = byId.get(id) ?? poiCache.get(id);
-    if (!p || p.source === "campsite") continue;
-    if (poiInsideOutline(p, ring)) continue;
-    next.delete(id);
-    byId.delete(id);
+  if (allSelected) {
+    for (const p of inside) {
+      next.delete(p.id);
+      byId.delete(p.id);
+    }
+  } else {
+    for (const p of inside) {
+      next.add(p.id);
+      byId.set(p.id, p);
+    }
   }
   exportPoisById.value = byId;
   selected.value = next;
+  refreshMarkerSelection();
+  syncMarkers();
 }
 
-/** Re-apply selection from the in-progress outline (after vertex/edge edits). */
-function syncSelectionFromOutlineDraft() {
-  if (outlineDraft.value.length < 3) return;
-  selectPoisInsideOutline(outlineDraft.value);
+function selectPoisInArea(id: string) {
+  const area = areas.value.find((a) => a.id === id);
+  if (!area || area.ring.length < 3) return;
+  togglePoisInsideOutline(area.ring);
 }
 
 /** Deselect POIs named like "… Campsite - …". */
@@ -556,10 +612,15 @@ function convertCampsiteLabeledToPlanned() {
 }
 
 function setPlaceTool(tool: PlaceTool) {
-  if (placeTool.value === "outline" && tool !== "outline") {
+  if (tool === "outline") {
+    startNewAreaDraw();
+    return;
+  }
+  if (placeTool.value === "outline") {
     commitOutlineDraft();
   }
   stopPlaceTool();
+  editingAreaId.value = null;
   placeTool.value = tool;
   proximityWarning.value = "";
   clearWarnCircle();
@@ -567,20 +628,87 @@ function setPlaceTool(tool: PlaceTool) {
     renderOutline();
     return;
   }
-  if (tool === "outline") {
-    startOutlineDraw();
-    return;
-  }
   renderOutline();
   startPlacePoi(tool);
+}
+
+/** Toolbar “Add area”: always start a new polygon (does not edit an existing one). */
+function startNewAreaDraw() {
+  if (placeTool.value === "outline") {
+    commitOutlineDraft();
+  }
+  stopPlaceTool();
+  editingAreaId.value = null;
+  areaDraft.value = [];
+  placeTool.value = "outline";
+  proximityWarning.value = "";
+  clearWarnCircle();
+  startOutlineDraw();
+}
+
+function editArea(id: string) {
+  const area = areas.value.find((a) => a.id === id);
+  if (!area) return;
+  if (placeTool.value === "outline") {
+    commitOutlineDraft();
+  }
+  stopPlaceTool();
+  editingAreaId.value = id;
+  placeTool.value = "outline";
+  proximityWarning.value = "";
+  clearWarnCircle();
+  startOutlineDraw();
+}
+
+/** Commit the in-progress area draft and leave edit/draw mode. */
+function finishAreaEdit() {
+  if (placeTool.value !== "outline") return;
+  commitOutlineDraft();
+  placeTool.value = null;
+  stopPlaceTool();
+  editingAreaId.value = null;
+  renderOutline();
+}
+
+function renameArea(id: string, name: string) {
+  const trimmed = name.trim() || "Area";
+  areas.value = areas.value.map((a) => (a.id === id ? { ...a, name: trimmed } : a));
+  renderOutline();
+}
+
+function setAreaColor(id: string, color: string) {
+  const next = normalizeAreaColor(color);
+  areas.value = areas.value.map((a) => (a.id === id ? { ...a, color: next } : a));
+  renderOutline();
+}
+
+function deleteArea(id: string) {
+  if (editingAreaId.value === id) {
+    areaDraft.value = [];
+    editingAreaId.value = null;
+    areaGeometrySnapshot = null;
+    if (placeTool.value === "outline") {
+      placeTool.value = null;
+      stopPlaceTool();
+    }
+  }
+  areas.value = areas.value.filter((a) => a.id !== id);
+  renderOutline();
+}
+
+function focusArea(id: string) {
+  const area = areas.value.find((a) => a.id === id);
+  const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
+  if (!area || !map || !L || area.ring.length < 2) return;
+  map.fitBounds(L.latLngBounds(area.ring.map(([lat, lng]) => L.latLng(lat, lng))), {
+    padding: [48, 48],
+    maxZoom: 18,
+  });
 }
 
 function stopPlaceTool() {
   stopPlaceSession?.();
   stopPlaceSession = null;
-  if (placeTool.value === "outline" && outlineDraft.value.length) {
-    // keep draft until finished or cleared
-  }
   if (map) map.getContainer().style.cursor = "";
 }
 
@@ -667,8 +795,13 @@ function startOutlineDraw() {
   const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
   if (!map || !L) return;
   map.getContainer().style.cursor = "crosshair";
-  snapshotOutlineSelection();
-  outlineDraft.value = outline.value ? outline.value.map((p) => [p[0], p[1]] as [number, number]) : [];
+  if (editingAreaId.value) {
+    const area = areas.value.find((a) => a.id === editingAreaId.value);
+    areaDraft.value = area
+      ? area.ring.map((p) => [p[0], p[1]] as [number, number])
+      : [];
+  }
+  snapshotAreaGeometry();
   renderOutline();
 
   const finish = () => {
@@ -679,18 +812,19 @@ function startOutlineDraw() {
   };
 
   const cancel = () => {
-    outlineDraft.value = [];
+    areaDraft.value = [];
     placeTool.value = null;
     stopPlaceTool();
+    restoreAreaGeometrySnapshot();
+    editingAreaId.value = null;
     renderOutline();
-    restoreOutlineSelectionSnapshot();
   };
 
   const onClick = (e: LeafletMouseEvent) => {
     const t = e.originalEvent.target as HTMLElement | null;
     if (t?.closest?.(OUTLINE_HANDLE_SEL)) return;
     L.DomEvent.stopPropagation(e);
-    const pts = outlineDraft.value;
+    const pts = areaDraft.value;
     if (pts.length >= 3) {
       const first = L.latLng(pts[0][0], pts[0][1]);
       if (first.distanceTo(e.latlng) < 20) {
@@ -698,7 +832,7 @@ function startOutlineDraw() {
         return;
       }
     }
-    outlineDraft.value = [...pts, [e.latlng.lat, e.latlng.lng]];
+    areaDraft.value = [...pts, [e.latlng.lat, e.latlng.lng]];
     renderOutline();
   };
 
@@ -713,9 +847,9 @@ function startOutlineDraw() {
   const onKeyDown = (ev: KeyboardEvent) => {
     if (ev.key === "Escape") {
       cancel();
-    } else if ((ev.key === "Backspace" || ev.key === "Delete") && outlineDraft.value.length) {
+    } else if ((ev.key === "Backspace" || ev.key === "Delete") && areaDraft.value.length) {
       ev.preventDefault();
-      outlineDraft.value = outlineDraft.value.slice(0, -1);
+      areaDraft.value = areaDraft.value.slice(0, -1);
       renderOutline();
     }
   };
@@ -748,6 +882,48 @@ function syncOutlineShape(pts: [number, number][]) {
   if (outlineFill) outlineFill.setLatLngs(latlngs);
 }
 
+function addCommittedAreaPolygon(
+  L: typeof import("leaflet").default,
+  area: MapArea,
+  interactive: boolean,
+) {
+  if (!outlineLayer || area.ring.length < 3) return;
+  const color = normalizeAreaColor(area.color);
+  const latlngs = area.ring.map(([lat, lng]) => L.latLng(lat, lng));
+  const poly = L.polygon(latlngs, {
+    color,
+    weight: 2,
+    fillColor: color,
+    fillOpacity: 0.12,
+    interactive,
+  });
+  poly.bindTooltip(area.name, {
+    sticky: true,
+    direction: "top",
+    opacity: 0.95,
+    className: "area-tooltip",
+  });
+  if (interactive) {
+    poly.on("click", (ev) => {
+      L.DomEvent.stopPropagation(ev);
+      editArea(area.id);
+    });
+  }
+  outlineLayer.addLayer(poly);
+  for (const ll of latlngs) {
+    outlineLayer.addLayer(
+      L.circleMarker(ll, {
+        radius: 4,
+        color,
+        fillColor: "#fff",
+        fillOpacity: 1,
+        weight: 2,
+        interactive: false,
+      }),
+    );
+  }
+}
+
 function renderOutline() {
   const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
   if (!outlineLayer || !L || outlineDragging) return;
@@ -755,55 +931,47 @@ function renderOutline() {
   outlineShape = null;
   outlineFill = null;
   const editing = placeTool.value === "outline";
-  const pts = editing ? outlineDraft.value : outline.value;
-  if (!pts || pts.length === 0) return;
+  const color = draftAreaColor();
+
+  for (const area of areas.value) {
+    if (editing && editingAreaId.value === area.id) continue;
+    addCommittedAreaPolygon(L, area, !editing);
+  }
+
+  if (!editing) return;
+
+  const pts = areaDraft.value;
+  if (!pts.length) return;
   const latlngs = pts.map(([lat, lng]) => L.latLng(lat, lng));
-  const closed = !editing && pts.length >= 3;
 
   if (pts.length >= 2) {
-    if (closed) {
-      outlineShape = L.polygon(latlngs, {
-        color: "#5b8cff",
-        weight: 2,
-        fillColor: "#5b8cff",
-        fillOpacity: 0.12,
+    const ring = pts.length >= 3 ? [...latlngs, latlngs[0]] : latlngs;
+    outlineShape = L.polyline(ring, {
+      color,
+      weight: 3,
+      dashArray: "6 4",
+    });
+    outlineLayer.addLayer(outlineShape);
+    if (pts.length >= 3) {
+      outlineFill = L.polygon(latlngs, {
+        color,
+        weight: 0,
+        fillColor: color,
+        fillOpacity: 0.1,
+        interactive: false,
       });
-      outlineLayer.addLayer(outlineShape);
-    } else {
-      const ring = editing && pts.length >= 3 ? [...latlngs, latlngs[0]] : latlngs;
-      outlineShape = L.polyline(ring, {
-        color: "#5b8cff",
-        weight: 3,
-        dashArray: editing ? "6 4" : undefined,
-      });
-      outlineLayer.addLayer(outlineShape);
-      if (editing && pts.length >= 3) {
-        outlineFill = L.polygon(latlngs, {
-          color: "#5b8cff",
-          weight: 0,
-          fillColor: "#5b8cff",
-          fillOpacity: 0.1,
-          interactive: false,
-        });
-        outlineLayer.addLayer(outlineFill);
-      }
+      outlineLayer.addLayer(outlineFill);
     }
   }
 
   latlngs.forEach((ll, index) => {
-    if (!editing) {
-      outlineLayer!.addLayer(
-        L.circleMarker(ll, { radius: 4, color: "#5b8cff", fillColor: "#fff", fillOpacity: 1, weight: 2 }),
-      );
-      return;
-    }
     const vertex = L.marker(ll, {
       draggable: true,
       autoPan: true,
       zIndexOffset: 1200,
       icon: L.divIcon({
         className: "outline-vertex-wrap",
-        html: `<div class="outline-vertex${index === 0 ? " outline-vertex-first" : ""}" title="Drag to move · double-click to remove"></div>`,
+        html: `<div class="outline-vertex${index === 0 ? " outline-vertex-first" : ""}" style="border-color:${index === 0 ? "#f0a202" : color}" title="Drag to move · double-click to remove"></div>`,
         iconSize: [16, 16],
         iconAnchor: [8, 8],
       }),
@@ -812,31 +980,29 @@ function renderOutline() {
     vertex.on("dblclick", (ev) => {
       L.DomEvent.stopPropagation(ev);
       L.DomEvent.preventDefault(ev.originalEvent);
-      outlineDraft.value = outlineDraft.value.filter((_, i) => i !== index);
+      areaDraft.value = areaDraft.value.filter((_, i) => i !== index);
       renderOutline();
-      syncSelectionFromOutlineDraft();
     });
     vertex.on("dragstart", () => {
       outlineDragging = true;
     });
     vertex.on("drag", (ev) => {
       const pos = (ev.target as Marker).getLatLng();
-      const next = outlineDraft.value.map((p, i) =>
+      const next = areaDraft.value.map((p, i) =>
         i === index ? ([pos.lat, pos.lng] as [number, number]) : p,
       );
-      outlineDraft.value = next;
+      areaDraft.value = next;
       syncOutlineShape(next);
     });
     vertex.on("dragend", () => {
       outlineDragging = false;
       renderOutline();
-      syncSelectionFromOutlineDraft();
     });
     outlineLayer!.addLayer(vertex);
   });
 
-  if (editing && pts.length >= 2) {
-    addOutlineMidpointHandles(L, latlngs);
+  if (pts.length >= 2) {
+    addOutlineMidpointHandles(L, latlngs, color);
   }
 }
 
@@ -846,6 +1012,7 @@ const OUTLINE_HANDLE_SEL = ".outline-vertex, .outline-vertex-wrap, .outline-midp
 function addOutlineMidpointHandles(
   L: typeof import("leaflet").default,
   latlngs: import("leaflet").LatLng[],
+  color: string,
 ) {
   if (!outlineLayer) return;
   const n = latlngs.length;
@@ -871,7 +1038,7 @@ function addOutlineMidpointHandles(
       zIndexOffset: 1100,
       icon: L.divIcon({
         className: "outline-midpoint-wrap",
-        html: `<div class="outline-midpoint" title="Drag or click to split edge"></div>`,
+        html: `<div class="outline-midpoint" style="border-color:${color};background:${color}59" title="Drag or click to split edge"></div>`,
         iconSize: [12, 12],
         iconAnchor: [6, 6],
       }),
@@ -885,9 +1052,9 @@ function addOutlineMidpointHandles(
       }
       // Click inserts a vertex in place (no drag needed).
       const pos = marker.getLatLng();
-      const next = [...outlineDraft.value];
+      const next = [...areaDraft.value];
       next.splice(edge.insertAt, 0, [pos.lat, pos.lng]);
-      outlineDraft.value = next;
+      areaDraft.value = next;
       renderOutline();
     });
     marker.on("dblclick", (ev) => {
@@ -898,35 +1065,28 @@ function addOutlineMidpointHandles(
       suppressClick = true;
       outlineDragging = true;
       const pos = marker.getLatLng();
-      const next = [...outlineDraft.value];
+      const next = [...areaDraft.value];
       next.splice(edge.insertAt, 0, [pos.lat, pos.lng]);
-      outlineDraft.value = next;
+      areaDraft.value = next;
       liveIndex = edge.insertAt;
       syncOutlineShape(next);
     });
     marker.on("drag", (ev) => {
       if (liveIndex == null) return;
       const pos = (ev.target as Marker).getLatLng();
-      const next = outlineDraft.value.map((p, i) =>
+      const next = areaDraft.value.map((p, i) =>
         i === liveIndex ? ([pos.lat, pos.lng] as [number, number]) : p,
       );
-      outlineDraft.value = next;
+      areaDraft.value = next;
       syncOutlineShape(next);
     });
     marker.on("dragend", () => {
       outlineDragging = false;
       liveIndex = null;
       renderOutline();
-      syncSelectionFromOutlineDraft();
     });
     outlineLayer.addLayer(marker);
   }
-}
-
-function clearOutline() {
-  outline.value = null;
-  outlineDraft.value = [];
-  renderOutline();
 }
 
 function clearSelection() {
@@ -1049,8 +1209,17 @@ function importPlan(plan: CampfirePlan) {
       showInactivePowerspots.value = true;
     }
   }
-  outline.value = plan.outline && plan.outline.length >= 3 ? plan.outline : null;
-  outlineDraft.value = [];
+  areas.value = plan.areas
+    .filter((a) => a.ring.length >= 3)
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      color: normalizeAreaColor(a.color),
+      ring: a.ring.map((p) => [p[0], p[1]] as [number, number]),
+    }));
+  areaDraft.value = [];
+  editingAreaId.value = null;
+  areaGeometrySnapshot = null;
   try {
     const settings: ExportSettings = {
       ...DEFAULT_EXPORT_SETTINGS,
@@ -1069,12 +1238,12 @@ function importPlan(plan: CampfirePlan) {
   }
   enterCampsiteEdit();
   renderOutline();
-  if (map && (ids.length || campsitePois.value.length || outline.value)) {
+  if (map && (ids.length || campsitePois.value.length || areas.value.length)) {
     const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
     if (L) {
       const pts: [number, number][] = [];
       for (const p of [...exportPois.value, ...campsitePois.value]) pts.push([p.lat, p.lng]);
-      if (outline.value) pts.push(...outline.value);
+      for (const a of areas.value) pts.push(...a.ring);
       if (pts.length) {
         map.fitBounds(L.latLngBounds(pts.map(([lat, lng]) => L.latLng(lat, lng))), {
           padding: [48, 48],

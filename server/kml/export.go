@@ -6,8 +6,17 @@ type ExportLayer struct {
 	Types []string `json:"types"`
 }
 
-// ExportOptions controls folder layout and optional campsite outline.
+// ExportArea is a named polygon ring (lat,lng) for My Maps zone placemarks.
+type ExportArea struct {
+	Name  string       `json:"name"`
+	Color string       `json:"color,omitempty"` // #rrggbb
+	Ring  [][2]float64 `json:"ring"`            // lat,lng; closed automatically if needed
+}
+
+// ExportOptions controls folder layout and optional map areas.
 type ExportOptions struct {
-	Layers  []ExportLayer
-	Outline [][2]float64 // lat,lng rings; closed automatically if needed
+	Layers []ExportLayer
+	Areas  []ExportArea
+	// Outline is a legacy single ring; used when Areas is empty.
+	Outline [][2]float64
 }

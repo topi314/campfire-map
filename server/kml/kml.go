@@ -233,7 +233,7 @@ func defaultLayers() []ExportLayer {
 	return []ExportLayer{
 		{Name: "Existing", Types: []string{"gym", "pokestop", "powerspot"}},
 		{Name: "Routes", Types: []string{"route"}},
-		{Name: "Play Area", Types: []string{"outline"}},
+		{Name: "Areas", Types: []string{"outline"}},
 		{Name: "Ranges", Types: []string{"range_wayfarer"}},
 		{Name: "Campsite", Types: []string{"campsite_gym", "campsite_pokestop", "campsite_powerspot"}},
 	}
@@ -270,9 +270,24 @@ func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string, opts E
 		buckets[idx] = append(buckets[idx], placemarksForPOI(p)...)
 	}
 
-	if len(opts.Outline) >= 3 {
-		if idx, ok := typeToLayer["outline"]; ok {
-			buckets[idx] = append(buckets[idx], outlinePlacemark(opts.Outline))
+	if idx, ok := typeToLayer["outline"]; ok {
+		areas := opts.Areas
+		if len(areas) == 0 && len(opts.Outline) >= 3 {
+			areas = []ExportArea{{Name: "Play Area", Ring: opts.Outline}}
+		}
+		seenOutlineStyles := map[string]bool{"outline": true}
+		for _, a := range areas {
+			if len(a.Ring) < 3 {
+				continue
+			}
+			styleID := outlineStyleID(a.Color)
+			if !seenOutlineStyles[styleID] {
+				line := hexToKML(normalizeHexColor(a.Color), 0xff)
+				fill := hexToKML(normalizeHexColor(a.Color), 0x40)
+				doc.Styles, doc.StyleMaps = appendLinePolyStyleMap(doc.Styles, doc.StyleMaps, styleID, line, 3, fill)
+				seenOutlineStyles[styleID] = true
+			}
+			buckets[idx] = append(buckets[idx], outlinePlacemark(a, styleID))
 		}
 	}
 
@@ -355,23 +370,7 @@ func sharedStyles(iconRefs map[string]string) ([]style, []styleMap) {
 	}
 
 	addLinePolyStyleMap := func(id, lineColor string, lineWidth int, polyColor string) {
-		for _, suffix := range []string{"-normal", "-highlight"} {
-			s := style{
-				ID:        id + suffix,
-				LineStyle: &lineStyle{Color: lineColor, Width: lineWidth},
-			}
-			if polyColor != "" {
-				s.PolyStyle = &polyStyle{Color: polyColor, Fill: 1, Outline: 1}
-			}
-			styles = append(styles, s)
-		}
-		maps = append(maps, styleMap{
-			ID: id,
-			Pair: []stylePair{
-				{Key: "normal", StyleURL: "#" + id + "-normal"},
-				{Key: "highlight", StyleURL: "#" + id + "-highlight"},
-			},
-		})
+		styles, maps = appendLinePolyStyleMap(styles, maps, id, lineColor, lineWidth, polyColor)
 	}
 
 	for _, t := range poi.AllTypes() {
@@ -479,7 +478,53 @@ func placemarksForPOI(p poi.POI) []placemark {
 	}}
 }
 
-func outlinePlacemark(ring [][2]float64) placemark {
+func appendLinePolyStyleMap(styles []style, maps []styleMap, id, lineColor string, lineWidth int, polyColor string) ([]style, []styleMap) {
+	for _, suffix := range []string{"-normal", "-highlight"} {
+		s := style{
+			ID:        id + suffix,
+			LineStyle: &lineStyle{Color: lineColor, Width: lineWidth},
+		}
+		if polyColor != "" {
+			s.PolyStyle = &polyStyle{Color: polyColor, Fill: 1, Outline: 1}
+		}
+		styles = append(styles, s)
+	}
+	maps = append(maps, styleMap{
+		ID: id,
+		Pair: []stylePair{
+			{Key: "normal", StyleURL: "#" + id + "-normal"},
+			{Key: "highlight", StyleURL: "#" + id + "-highlight"},
+		},
+	})
+	return styles, maps
+}
+
+const defaultOutlineHex = "#5b8cff"
+
+func normalizeHexColor(hex string) string {
+	h := strings.TrimPrefix(strings.TrimSpace(hex), "#")
+	if len(h) != 6 {
+		return defaultOutlineHex
+	}
+	for _, c := range h {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return defaultOutlineHex
+		}
+	}
+	return "#" + strings.ToLower(h)
+}
+
+// outlineStyleID returns a KML style id for an area color (#rrggbb → outline_rrggbb).
+func outlineStyleID(hex string) string {
+	h := strings.TrimPrefix(normalizeHexColor(hex), "#")
+	if h == "5b8cff" {
+		return "outline" // shared default style from sharedStyles
+	}
+	return "outline_" + h
+}
+
+func outlinePlacemark(area ExportArea, styleID string) placemark {
+	ring := area.Ring
 	coords := make([]string, 0, len(ring)+1)
 	for _, pt := range ring {
 		coords = append(coords, fmt.Sprintf("%.7f,%.7f,0", pt[1], pt[0]))
@@ -489,11 +534,18 @@ func outlinePlacemark(ring [][2]float64) placemark {
 	if first[0] != last[0] || first[1] != last[1] {
 		coords = append(coords, fmt.Sprintf("%.7f,%.7f,0", first[1], first[0]))
 	}
-	const t = "Draw area"
+	name := strings.TrimSpace(area.Name)
+	if name == "" {
+		name = "Area"
+	}
+	t := name
+	if styleID == "" {
+		styleID = outlineStyleID(area.Color)
+	}
 	return placemark{
-		Name:         "Draw area",
-		Description:  "Planned campsite area · Type: " + t,
-		StyleURL:     "#outline",
+		Name:         name,
+		Description:  "Map area · Type: " + t,
+		StyleURL:     "#" + styleID,
 		ExtendedData: typeData(t),
 		Polygon: &polygon{
 			OuterBoundaryIs: outerBoundary{
