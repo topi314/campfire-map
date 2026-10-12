@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/topi314/campfire-export/server/poi"
@@ -62,8 +63,8 @@ type hotSpot struct {
 }
 
 type lineStyle struct {
-	Color string `xml:"color"`
-	Width int    `xml:"width"`
+	Color string  `xml:"color"`
+	Width float64 `xml:"width"`
 }
 
 type polyStyle struct {
@@ -91,7 +92,7 @@ type folder struct {
 type placemark struct {
 	Name         string        `xml:"name"`
 	Description  string        `xml:"description"`
-	StyleURL     string        `xml:"styleUrl"`
+	StyleURL     string        `xml:"styleUrl,omitempty"`
 	ExtendedData *extendedData `xml:"ExtendedData,omitempty"`
 	Point        *point        `xml:"Point,omitempty"`
 	LineString   *line         `xml:"LineString,omitempty"`
@@ -126,6 +127,7 @@ type outerBoundary struct {
 }
 
 type linearRing struct {
+	Tessellate  *int   `xml:"tessellate,omitempty"`
 	Coordinates string `xml:"coordinates"`
 }
 
@@ -275,7 +277,9 @@ func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string, opts E
 		if len(areas) == 0 && len(opts.Outline) >= 3 {
 			areas = []ExportArea{{Name: "Play Area", Ring: opts.Outline}}
 		}
-		seenOutlineStyles := map[string]bool{"outline": true}
+		// Match My Maps export: shared poly-RRGGBB-3000-64 StyleMaps + styleUrl
+		// (native My Maps KMZ re-imports with Individual colors this way).
+		seenOutlineStyles := map[string]bool{}
 		for _, a := range areas {
 			if len(a.Ring) < 3 {
 				continue
@@ -292,7 +296,7 @@ func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string, opts E
 	}
 
 	if idx, ok := typeToLayer["drawn_route"]; ok {
-		seenRouteStyles := map[string]bool{"drawn_route": true}
+		seenRouteStyles := map[string]bool{drawnRouteLineStyleID(defaultOutlineHex): true}
 		for _, rt := range opts.Routes {
 			if len(rt.Path) < 2 {
 				continue
@@ -385,7 +389,7 @@ func sharedStyles(iconRefs map[string]string) ([]style, []styleMap) {
 		})
 	}
 
-	addLinePolyStyleMap := func(id, lineColor string, lineWidth int, polyColor string) {
+	addLinePolyStyleMap := func(id, lineColor string, lineWidth float64, polyColor string) {
 		styles, maps = appendLinePolyStyleMap(styles, maps, id, lineColor, lineWidth, polyColor)
 	}
 
@@ -399,8 +403,9 @@ func sharedStyles(iconRefs map[string]string) ([]style, []styleMap) {
 
 	addLinePolyStyleMap("route-line", routeLineKML, 4, "")
 	addIconStyleMap("route-end", iconRefs["route-end"])
-	addLinePolyStyleMap("outline", "ff8cff5b", 3, "405b8cff")
-	addLinePolyStyleMap("drawn_route", "ff8cff5b", 4, "")
+	// My Maps drawn-route lines: line-RRGGBB-4000 (width 4 → highlight 6).
+	outlineLine := hexToKML(defaultOutlineHex, 0xff)
+	addLinePolyStyleMap(drawnRouteLineStyleID(defaultOutlineHex), outlineLine, 4, "")
 
 	for _, def := range exportRanges {
 		addLinePolyStyleMap(def.key, hexToKML(def.color, 0xff), 2, hexToKML(def.color, 0x40))
@@ -448,9 +453,8 @@ func poiDescription(p poi.POI, typeValue string) string {
 	return fmt.Sprintf("%s · %.6f, %.6f · Type: %s", p.Name, p.Lat, p.Lng, typeValue)
 }
 
-// placemarksForPOI returns one or more placemarks. Routes keep start, path, and end together
-// (caller places them in the same folder). Styles are shared by POI type in the KML file;
-// My Maps typically imports them as individual styles per feature — that's fine.
+// placemarksForPOI returns one or more placemarks. Routes keep start + path together
+// (and end when the path is open). Closed loops omit the end flag — start covers both ends.
 func placemarksForPOI(p poi.POI) []placemark {
 	styleID := p.LayerTypeKey()
 	if p.Type == poi.TypeRoute && len(p.Path) > 1 {
@@ -461,7 +465,7 @@ func placemarksForPOI(p poi.POI) []placemark {
 		start := p.Path[0]
 		endPt := p.Path[len(p.Path)-1]
 		startType, pathType, endType := "Route", "Route path", "Route end"
-		return []placemark{
+		out := []placemark{
 			{
 				Name:         p.Name,
 				Description:  poiDescription(p, startType),
@@ -476,14 +480,17 @@ func placemarksForPOI(p poi.POI) []placemark {
 				ExtendedData: typeData(pathType),
 				LineString:   &line{Tessellate: 1, Coordinates: strings.Join(coords, " ")},
 			},
-			{
+		}
+		if !routeEndpointsConnected(p.Path) {
+			out = append(out, placemark{
 				Name:         p.Name + " (end)",
 				Description:  poiDescription(p, endType),
 				StyleURL:     "#route-end",
 				ExtendedData: typeData(endType),
 				Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", endPt[1], endPt[0])},
-			},
+			})
 		}
+		return out
 	}
 	t := typeColumn(p)
 	return []placemark{{
@@ -495,11 +502,19 @@ func placemarksForPOI(p poi.POI) []placemark {
 	}}
 }
 
-func appendLinePolyStyleMap(styles []style, maps []styleMap, id, lineColor string, lineWidth int, polyColor string) ([]style, []styleMap) {
-	for _, suffix := range []string{"-normal", "-highlight"} {
+// appendLinePolyStyleMap mirrors My Maps exports: normal width + highlight at 1.5×
+// (e.g. poly width 3 → highlight 4.5, line width 4 → highlight 6).
+func appendLinePolyStyleMap(styles []style, maps []styleMap, id, lineColor string, lineWidth float64, polyColor string) ([]style, []styleMap) {
+	for _, part := range []struct {
+		suffix string
+		width  float64
+	}{
+		{"-normal", lineWidth},
+		{"-highlight", lineWidth * 1.5},
+	} {
 		s := style{
-			ID:        id + suffix,
-			LineStyle: &lineStyle{Color: lineColor, Width: lineWidth},
+			ID:        id + part.suffix,
+			LineStyle: &lineStyle{Color: lineColor, Width: part.width},
 		}
 		if polyColor != "" {
 			s.PolyStyle = &polyStyle{Color: polyColor, Fill: 1, Outline: 1}
@@ -531,13 +546,11 @@ func normalizeHexColor(hex string) string {
 	return "#" + strings.ToLower(h)
 }
 
-// outlineStyleID returns a KML style id for an area color (#rrggbb → outline_rrggbb).
+// outlineStyleID matches My Maps polygon naming: poly-RRGGBB-3000-64
+// (width 3.0 → 3000, fill alpha 0x40 → 64).
 func outlineStyleID(hex string) string {
-	h := strings.TrimPrefix(normalizeHexColor(hex), "#")
-	if h == "5b8cff" {
-		return "outline" // shared default style from sharedStyles
-	}
-	return "outline_" + h
+	h := strings.ToUpper(strings.TrimPrefix(normalizeHexColor(hex), "#"))
+	return "poly-" + h + "-3000-64"
 }
 
 func outlinePlacemark(area ExportArea, styleID string) placemark {
@@ -559,31 +572,39 @@ func outlinePlacemark(area ExportArea, styleID string) placemark {
 	if styleID == "" {
 		styleID = outlineStyleID(area.Color)
 	}
+	desc := "Map area · Type: " + t
+	tess := 1
 	return placemark{
-		Name:         name,
-		Description:  "Map area · Type: " + t,
-		StyleURL:     "#" + styleID,
-		ExtendedData: typeData(t),
+		Name:        name,
+		Description: desc,
+		StyleURL:    "#" + styleID,
+		ExtendedData: &extendedData{Data: []dataField{
+			{Name: "description", Value: desc},
+			{Name: "Type", Value: t},
+		}},
 		Polygon: &polygon{
 			OuterBoundaryIs: outerBoundary{
-				LinearRing: linearRing{Coordinates: strings.Join(coords, " ")},
+				LinearRing: linearRing{Tessellate: &tess, Coordinates: strings.Join(coords, " ")},
 			},
 		},
 	}
 }
 
-// drawnRouteLineStyleID returns a KML style id for a drawn route color.
-// Default blue reuses the shared drawn_route style.
+// drawnRouteLineStyleID matches My Maps line naming: line-RRGGBB-4000 (width 4.0).
 func drawnRouteLineStyleID(hex string) string {
-	h := strings.TrimPrefix(normalizeHexColor(hex), "#")
-	if h == "5b8cff" {
-		return "drawn_route"
-	}
-	return "drawn_route_" + h
+	h := strings.ToUpper(strings.TrimPrefix(normalizeHexColor(hex), "#"))
+	return "line-" + h + "-4000"
 }
 
-// drawnRoutePlacemarks emits start + path + end, matching Campfire route layout.
-// ExtendedData Type uses the route name for all three placemarks.
+func routeExtendedData(desc, typeValue string) *extendedData {
+	return &extendedData{Data: []dataField{
+		{Name: "description", Value: desc},
+		{Name: "Type", Value: typeValue},
+	}}
+}
+
+// drawnRoutePlacemarks emits start + path, and end when the path is open.
+// Closed loops omit the end flag. ExtendedData Type uses the route name.
 func drawnRoutePlacemarks(rt ExportRoute, lineStyleID string) []placemark {
 	name := strings.TrimSpace(rt.Name)
 	if name == "" {
@@ -599,27 +620,52 @@ func drawnRoutePlacemarks(rt ExportRoute, lineStyleID string) []placemark {
 		lineStyleID = drawnRouteLineStyleID(rt.Color)
 	}
 	desc := fmt.Sprintf("%s · %.6f, %.6f · Type: %s", name, start[0], start[1], name)
-	return []placemark{
+	ext := routeExtendedData(desc, name)
+	out := []placemark{
 		{
 			Name:         name,
 			Description:  desc,
 			StyleURL:     "#route",
-			ExtendedData: typeData(name),
+			ExtendedData: ext,
 			Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", start[1], start[0])},
 		},
 		{
 			Name:         name,
 			Description:  desc,
 			StyleURL:     "#" + lineStyleID,
-			ExtendedData: typeData(name),
+			ExtendedData: ext,
 			LineString:   &line{Tessellate: 1, Coordinates: strings.Join(coords, " ")},
 		},
-		{
+	}
+	if !routeEndpointsConnected(rt.Path) {
+		out = append(out, placemark{
 			Name:         name + " (end)",
 			Description:  desc,
 			StyleURL:     "#route-end",
-			ExtendedData: typeData(name),
+			ExtendedData: ext,
 			Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", endPt[1], endPt[0])},
-		},
+		})
 	}
+	return out
+}
+
+// routeEndpointsConnected reports whether start and end are the same point (closed loop).
+// Threshold matches the map preview (~4 m).
+func routeEndpointsConnected(path [][2]float64) bool {
+	if len(path) < 2 {
+		return false
+	}
+	a, b := path[0], path[len(path)-1]
+	const maxM = 4.0
+	return haversineMeters(a[0], a[1], b[0], b[1]) <= maxM
+}
+
+func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
+	const R = 6371000.0
+	toRad := math.Pi / 180
+	φ1, φ2 := lat1*toRad, lat2*toRad
+	dφ := (lat2 - lat1) * toRad
+	dλ := (lng2 - lng1) * toRad
+	s := math.Sin(dφ/2)*math.Sin(dφ/2) + math.Cos(φ1)*math.Cos(φ2)*math.Sin(dλ/2)*math.Sin(dλ/2)
+	return 2 * R * math.Asin(math.Min(1, math.Sqrt(s)))
 }

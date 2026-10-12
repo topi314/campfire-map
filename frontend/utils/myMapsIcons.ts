@@ -83,7 +83,7 @@ Files:
   campsite_pokestop.png  — Planned campsite PokéStops (amber)
   campsite_powerspot.png — Planned campsite powerspots (amber)
   route.png          — Routes (start marker)
-  route-end.png      — Route end point
+  route-end.png      — Route end point (open paths only)
 
 Icons are 128×128 px. My Maps works best with icons up to 64×64 px on the map.
 `;

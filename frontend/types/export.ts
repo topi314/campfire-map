@@ -338,7 +338,7 @@ export function estimateMyMapsFolders(
     const key = layerTypeKeyForPoi(p);
     const layerId = typeToLayer.get(key);
     if (!layerId) continue;
-    // Routes with path contribute start + path + end as 3 features in one folder.
+    // Routes with path: start + path (+ end when open). Estimate uses 3 (upper bound).
     let n = 1;
     if (p.type === "route" && p.path && p.path.length > 1) n = 3;
     counts.set(layerId, (counts.get(layerId) || 0) + n);
@@ -349,7 +349,7 @@ export function estimateMyMapsFolders(
   }
   if (drawnRouteCount > 0) {
     const layerId = typeToLayer.get("drawn_route");
-    // Each drawn route exports as start + path + end.
+    // Each drawn route: start + path (+ end when open). Estimate uses 3.
     if (layerId) counts.set(layerId, (counts.get(layerId) || 0) + drawnRouteCount * 3);
   }
   for (const t of RANGE_LAYER_TYPES) {

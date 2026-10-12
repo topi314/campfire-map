@@ -1422,24 +1422,43 @@ function addCommittedRoutePolyline(
     opacity: 0.95,
     className: "area-tooltip",
   });
+  const onRouteClick = (ev: LeafletMouseEvent) => {
+    L.DomEvent.stopPropagation(ev);
+    editRoute(route.id);
+  };
   if (interactive) {
-    line.on("click", (ev) => {
-      L.DomEvent.stopPropagation(ev);
-      editRoute(route.id);
-    });
+    line.on("click", onRouteClick);
   }
   drawnRoutesLayer.addLayer(line);
-  for (const ll of latlngs) {
-    drawnRoutesLayer.addLayer(
-      L.circleMarker(ll, {
-        radius: 4,
-        color,
-        fillColor: "#fff",
-        fillOpacity: 1,
-        weight: 2,
-        interactive: false,
-      }),
-    );
+
+  // Start flag always; end flag only when the path is open (not a loop).
+  const start = L.marker(latlngs[0], {
+    icon: routeStartIcon(L, false),
+    interactive,
+    zIndexOffset: 900,
+  });
+  start.bindTooltip(route.name, {
+    direction: "top",
+    opacity: 0.95,
+    className: "area-tooltip",
+  });
+  if (interactive) start.on("click", onRouteClick);
+  drawnRoutesLayer.addLayer(start);
+
+  const endLl = latlngs[latlngs.length - 1];
+  if (latlngs[0].distanceTo(endLl) > 4) {
+    const end = L.marker(endLl, {
+      icon: routeEndIcon(L, false),
+      interactive,
+      zIndexOffset: 900,
+    });
+    end.bindTooltip(`${route.name} (end)`, {
+      direction: "top",
+      opacity: 0.95,
+      className: "area-tooltip",
+    });
+    if (interactive) end.on("click", onRouteClick);
+    drawnRoutesLayer.addLayer(end);
   }
 }
 
@@ -2566,16 +2585,29 @@ function restoreOpenPopup() {
   marker.openPopup();
 }
 
-function routeEndIcon(L: typeof import("leaflet").default, selected: boolean) {
+function routeFlagIcon(
+  L: typeof import("leaflet").default,
+  kind: "start" | "end",
+  selected: boolean,
+) {
   const sel = selected ? " selected-pin" : "";
+  const color = kind === "start" ? ROUTE_COLORS.start : ROUTE_COLORS.end;
   const image = "/images/pgo-route.svg";
-  const inner = `<span class="poi-glyph" style="background:${ROUTE_COLORS.end};-webkit-mask-image:url(${image});mask-image:url(${image})"></span>`;
+  const inner = `<span class="poi-glyph" style="background:${color};-webkit-mask-image:url(${image});mask-image:url(${image})"></span>`;
   return L.divIcon({
-    className: "poi-icon-wrap route-endpoint-icon route-endpoint-end",
-    html: `<div class="poi-marker route-endpoint route-endpoint-end${sel}">${inner}</div>`,
+    className: `poi-icon-wrap route-endpoint-icon route-endpoint-${kind}`,
+    html: `<div class="poi-marker route-endpoint route-endpoint-${kind}${sel}">${inner}</div>`,
     iconSize: [32, 32],
     iconAnchor: [16, 16],
   });
+}
+
+function routeStartIcon(L: typeof import("leaflet").default, selected: boolean) {
+  return routeFlagIcon(L, "start", selected);
+}
+
+function routeEndIcon(L: typeof import("leaflet").default, selected: boolean) {
+  return routeFlagIcon(L, "end", selected);
 }
 
 function pinIcon(L: typeof import("leaflet").default, p: Poi, conflictOverride?: boolean) {

@@ -58,11 +58,12 @@ func TestBuildKMZ(t *testing.T) {
 		"Min POI spacing",
 		"<LineString>", "<Point>", "<Polygon>", "#super_mega_gym", "files/gym.png",
 		`#campsite_pokestop`, `files/campsite_pokestop.png`,
-		"route-line", "#outline", `#outline_e85d4c`, `#range_wayfarer`,
+		"route-line", `#poly-5B8CFF-3000-64`, `#poly-E85D4C-3000-64`, `#range_wayfarer`,
 		`<Style id="gym-normal"`, `<StyleMap id="gym"`,
 		`<Style id="campsite_pokestop-normal"`, `<StyleMap id="campsite_pokestop"`,
 		`<Style id="range_wayfarer-normal"`, `<StyleMap id="range_wayfarer"`,
-		`<StyleMap id="outline_e85d4c"`,
+		`<StyleMap id="poly-E85D4C-3000-64"`,
+		`<width>4.5</width>`, // My Maps poly highlight width
 		`<Data name="Type">`, "<value>Gym</value>", "<value>Campsite PokéStop</value>",
 		"<value>Min POI spacing</value>", "<value>Play Area</value>", "<value>Staging</value>",
 	} {
@@ -80,12 +81,15 @@ func TestBuildKMZ(t *testing.T) {
 	if strings.Contains(kmlDoc, "https://example.com") {
 		t.Error("kml should not embed remote POI photo URLs in styles")
 	}
-	// Existing folder should contain route start + path + end (mixed styleUrls OK).
+	// Open route "Loop" should include start + path + end.
 	if !folderContains(kmlDoc, "Existing", "#route") || !folderContains(kmlDoc, "Existing", "#route-line") || !folderContains(kmlDoc, "Existing", "#route-end") {
-		t.Error("route start/path/end should all be in Existing folder")
+		t.Error("open route start/path/end should all be in Existing folder")
 	}
 	if !folderContains(kmlDoc, "Campsite", "Planned Stop") || !folderContains(kmlDoc, "Campsite", "Play Area") || !folderContains(kmlDoc, "Campsite", "Staging") {
-		t.Error("campsite POI and areas should be in Campsite folder")
+		t.Error("campsite POI and all areas should be in one Campsite folder")
+	}
+	if !folderContains(kmlDoc, "Campsite", "#poly-5B8CFF-3000-64") || !folderContains(kmlDoc, "Campsite", "#poly-E85D4C-3000-64") {
+		t.Error("areas should use per-color My Maps poly-* styleUrls in the shared layer")
 	}
 	if !folderContains(kmlDoc, "Ranges", "#range_wayfarer") {
 		t.Error("range circles should be in Ranges folder")
@@ -115,30 +119,115 @@ func TestDrawnRouteExport(t *testing.T) {
 				Color: "#e85d4c",
 				Path:  [][2]float64{{52.5, 13.4}, {52.51, 13.41}, {52.52, 13.42}},
 			},
+			{
+				Name:  "Raid Route",
+				Color: "#3dbb7a",
+				Path:  [][2]float64{{52.6, 13.4}, {52.61, 13.41}},
+			},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(data)
+	wantLine := hexToKML("#e85d4c", 0xff)
+	wantGreen := hexToKML("#3dbb7a", 0xff) // matches working Untitled map(1).kmz
 	for _, needle := range []string{
 		"Campsite Routes",
 		"Trail A",
+		"Raid Route",
 		"<LineString>",
 		"#route",
 		"#route-end",
-		`#drawn_route_e85d4c`,
-		`<StyleMap id="drawn_route_e85d4c"`,
+		`#line-E85D4C-4000`,
+		`#line-3DBB7A-4000`,
+		`<StyleMap id="line-E85D4C-4000"`,
+		`<StyleMap id="line-3DBB7A-4000"`,
+		wantLine,
+		wantGreen,
+		`<width>6</width>`, // My Maps line highlight = 4 × 1.5
 		"<value>Trail A</value>",
+		`<Data name="description">`,
 	} {
 		if !strings.Contains(s, needle) {
 			t.Errorf("kml missing %q", needle)
 		}
 	}
+	if strings.Contains(s, "drawn_route") {
+		t.Error("drawn routes should use My Maps line-RRGGBB-4000 ids, not drawn_route*")
+	}
 	if !folderContains(s, "Campsite Routes", "<LineString>") ||
 		!folderContains(s, "Campsite Routes", "#route") ||
-		!folderContains(s, "Campsite Routes", "#drawn_route_e85d4c") {
-		t.Error("drawn route start/path/end should be in Campsite Routes folder")
+		!folderContains(s, "Campsite Routes", "#route-end") ||
+		!folderContains(s, "Campsite Routes", "#line-E85D4C-4000") ||
+		!folderContains(s, "Campsite Routes", "#line-3DBB7A-4000") {
+		t.Error("open drawn route start/path/end should be in Campsite Routes folder with per-color line styles")
+	}
+}
+
+func TestDefaultOutlineColorABGR(t *testing.T) {
+	// #5b8cff → aabbggrr ffff8c5b / 40ff8c5b (not HTML-order 405b8cff).
+	wantLine := hexToKML("#5b8cff", 0xff)
+	wantFill := hexToKML("#5b8cff", 0x40)
+	if wantLine != "ffff8c5b" || wantFill != "40ff8c5b" {
+		t.Fatalf("hexToKML unexpected: line=%s fill=%s", wantLine, wantFill)
+	}
+	data, err := BuildKML("colors", nil, ExportOptions{
+		Layers: []ExportLayer{{Name: "Areas", Types: []string{"outline"}}},
+		Areas: []ExportArea{
+			{Name: "Default", Color: "#5b8cff", Ring: [][2]float64{{1, 2}, {1.1, 2}, {1.1, 2.1}}},
+			{Name: "Custom", Color: "#e85d4c", Ring: [][2]float64{{3, 4}, {3.1, 4}, {3.1, 4.1}}},
+			{Name: "Indigo", Color: "#1a237e", Ring: [][2]float64{{5, 6}, {5.1, 6}, {5.1, 6.1}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, wantLine) || !strings.Contains(s, wantFill) {
+		t.Errorf("default outline missing correct aabbggrr colors %s / %s", wantLine, wantFill)
+	}
+	if strings.Contains(s, "405b8cff") || strings.Contains(s, "ff8cff5b") {
+		t.Error("default outline still uses HTML-order KML color bytes")
+	}
+	for _, needle := range []string{
+		`#poly-5B8CFF-3000-64`,
+		`#poly-E85D4C-3000-64`,
+		`#poly-1A237E-3000-64`,
+		hexToKML("#e85d4c", 0xff),
+		hexToKML("#1a237e", 0x40),
+		`<width>4.5</width>`,
+	} {
+		if !strings.Contains(s, needle) {
+			t.Errorf("kml missing %q", needle)
+		}
+	}
+}
+
+func TestClosedRouteOmitsEndMarker(t *testing.T) {
+	loop := [][2]float64{{52.5, 13.4}, {52.51, 13.4}, {52.51, 13.41}, {52.5, 13.4}}
+	data, err := BuildKML("loop", []poi.POI{
+		{ID: "r1", Type: poi.TypeRoute, Name: "Circuit", Lat: 52.5, Lng: 13.4, Path: loop},
+	}, ExportOptions{
+		Layers: []ExportLayer{
+			{Name: "Routes", Types: []string{"route"}},
+			{Name: "Campsite Routes", Types: []string{"drawn_route"}},
+		},
+		Routes: []ExportRoute{{Name: "Drawn Loop", Color: "#5b8cff", Path: loop}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "Circuit") || !strings.Contains(s, "Drawn Loop") {
+		t.Fatal("expected both closed routes in export")
+	}
+	if !strings.Contains(s, "<styleUrl>#route</styleUrl>") || !strings.Contains(s, "#route-line") {
+		t.Fatal("expected start + path for closed route")
+	}
+	// Shared #route-end Style may exist; placemarks must not reference it.
+	if strings.Contains(s, "<styleUrl>#route-end</styleUrl>") || strings.Contains(s, "(end)") {
+		t.Error("closed loop should omit end marker placemark")
 	}
 }
 
