@@ -65,6 +65,8 @@
           :place-tool="placeTool"
           :areas="areas"
           :editing-area-id="editingAreaId"
+          :routes="routes"
+          :editing-route-id="editingRouteId"
           :proximity-warning="proximityWarning"
           :campsite-note="campsiteNote"
           @toggle="togglePoi"
@@ -78,6 +80,12 @@
           @delete-area="deleteArea"
           @focus-area="focusArea"
           @select-pois-in-area="selectPoisInArea"
+          @edit-route="editRoute"
+          @finish-route-edit="finishRouteEdit"
+          @rename-route="renameRoute"
+          @set-route-color="setRouteColor"
+          @delete-route="deleteRoute"
+          @focus-route="focusRoute"
           @clear-selection="clearSelection"
           @exclude-campsite-pois="excludeCampsiteLabeledPois"
           @convert-campsite-pois="convertCampsiteLabeledToPlanned"
@@ -106,10 +114,11 @@ import {
 import { getBaseMap, HYBRID_BASE_LAYERS, isHybridBaseMap, withCartoApiKey } from "~/constants/baseMaps";
 import type { PlaceResult } from "~/composables/usePlaceSearch";
 import {
-  areaColorAt,
   normalizeAreaColor,
+  nextPaletteColor,
   type CampfirePlan,
   type MapArea,
+  type MapRoute,
 } from "~/types/plan";
 import {
   DEFAULT_EXPORT_SETTINGS,
@@ -177,6 +186,7 @@ const sheetTab = ref<"explore" | "export">(exportMode.value ? "export" : "explor
 const campsiteEdit = ref(false);
 const campsitePois = ref<Poi[]>([]);
 const areas = ref<MapArea[]>([]);
+const routes = ref<MapRoute[]>([]);
 const placeTool = ref<PlaceTool>(null);
 const proximityWarning = ref("");
 const campsiteNote = ref("");
@@ -184,6 +194,9 @@ const radiusOverlays = ref<RadiusOverlayState>({ ...storedUi.radiusOverlays });
 const areaDraft = ref<[number, number][]>([]);
 /** When set, draft edits that area; null means drawing a new area. */
 const editingAreaId = ref<string | null>(null);
+const routeDraft = ref<[number, number][]>([]);
+/** When set, draft edits that route; null means drawing a new route. */
+const editingRouteId = ref<string | null>(null);
 const campsiteConflicts = ref<Set<string>>(new Set());
 let campsiteNoteTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -246,10 +259,13 @@ let campsiteLayer: LayerGroup | null = null;
 let routesLayer: LayerGroup | null = null;
 let cellsLayer: LayerGroup | null = null;
 let outlineLayer: FeatureGroup | null = null;
+let drawnRoutesLayer: FeatureGroup | null = null;
 let proximityRadiiLayer: LayerGroup | null = null;
 let outlineShape: Polyline | Polygon | null = null;
 let outlineFill: Polygon | null = null;
 let outlineDragging = false;
+let routeShape: Polyline | null = null;
+let routeDragging = false;
 let stopPlaceSession: (() => void) | null = null;
 const markers = new Map<string, Marker>();
 const routeOverlays = new Map<string, Layer[]>();
@@ -263,6 +279,8 @@ let warnCircle: CircleMarker | null = null;
 let draggingCampsiteId: string | null = null;
 /** Geometry before area edits; restored if the draft is cancelled. */
 let areaGeometrySnapshot: { id: string | null; ring: [number, number][] } | null = null;
+/** Geometry before route edits; restored if the draft is cancelled. */
+let routeGeometrySnapshot: { id: string | null; path: [number, number][] } | null = null;
 
 onMounted(async () => {
   const leaflet = await import("leaflet");
@@ -289,6 +307,7 @@ onMounted(async () => {
   cellsLayer = L.layerGroup();
   campsiteLayer = L.layerGroup();
   outlineLayer = L.featureGroup();
+  drawnRoutesLayer = L.featureGroup();
   proximityRadiiLayer = L.layerGroup();
   map.addLayer(cellsLayer);
   map.addLayer(proximityRadiiLayer);
@@ -296,6 +315,7 @@ onMounted(async () => {
   map.addLayer(campsiteLayer);
   map.addLayer(routesLayer);
   map.addLayer(outlineLayer);
+  map.addLayer(drawnRoutesLayer);
 
   map.on("moveend", () => {
     persistMapView();
@@ -337,6 +357,10 @@ watch(campsitePois, () => {
 watch(areas, () => {
   if (placeTool.value === "outline") return;
   renderOutline();
+}, { deep: true });
+watch(routes, () => {
+  if (placeTool.value === "draw_route") return;
+  renderDrawnRoutes();
 }, { deep: true });
 watch(enabled, () => {
   syncMarkers();
@@ -453,7 +477,10 @@ function draftAreaColor(): string {
     const area = areas.value.find((a) => a.id === editingAreaId.value);
     if (area) return normalizeAreaColor(area.color);
   }
-  return areaColorAt(areas.value.length);
+  return nextPaletteColor([
+    ...areas.value.map((a) => a.color),
+    ...routes.value.map((r) => r.color),
+  ]);
 }
 
 /** Commits draft area if it has ≥3 points. Returns whether an area was saved. */
@@ -616,19 +643,29 @@ function setPlaceTool(tool: PlaceTool) {
     startNewAreaDraw();
     return;
   }
+  if (tool === "draw_route") {
+    startNewRouteDraw();
+    return;
+  }
   if (placeTool.value === "outline") {
     commitOutlineDraft();
   }
+  if (placeTool.value === "draw_route") {
+    commitRouteDraft();
+  }
   stopPlaceTool();
   editingAreaId.value = null;
+  editingRouteId.value = null;
   placeTool.value = tool;
   proximityWarning.value = "";
   clearWarnCircle();
   if (!tool || !map) {
     renderOutline();
+    renderDrawnRoutes();
     return;
   }
   renderOutline();
+  renderDrawnRoutes();
   startPlacePoi(tool);
 }
 
@@ -637,8 +674,12 @@ function startNewAreaDraw() {
   if (placeTool.value === "outline") {
     commitOutlineDraft();
   }
+  if (placeTool.value === "draw_route") {
+    commitRouteDraft();
+  }
   stopPlaceTool();
   editingAreaId.value = null;
+  editingRouteId.value = null;
   areaDraft.value = [];
   placeTool.value = "outline";
   proximityWarning.value = "";
@@ -652,7 +693,11 @@ function editArea(id: string) {
   if (placeTool.value === "outline") {
     commitOutlineDraft();
   }
+  if (placeTool.value === "draw_route") {
+    commitRouteDraft();
+  }
   stopPlaceTool();
+  editingRouteId.value = null;
   editingAreaId.value = id;
   placeTool.value = "outline";
   proximityWarning.value = "";
@@ -668,6 +713,90 @@ function finishAreaEdit() {
   stopPlaceTool();
   editingAreaId.value = null;
   renderOutline();
+  renderDrawnRoutes();
+}
+
+/** Toolbar “Add route”: always start a new polyline (does not edit an existing one). */
+function startNewRouteDraw() {
+  if (placeTool.value === "outline") {
+    commitOutlineDraft();
+  }
+  if (placeTool.value === "draw_route") {
+    commitRouteDraft();
+  }
+  stopPlaceTool();
+  editingAreaId.value = null;
+  editingRouteId.value = null;
+  routeDraft.value = [];
+  placeTool.value = "draw_route";
+  proximityWarning.value = "";
+  clearWarnCircle();
+  startRouteDraw();
+}
+
+function editRoute(id: string) {
+  const route = routes.value.find((r) => r.id === id);
+  if (!route) return;
+  if (placeTool.value === "outline") {
+    commitOutlineDraft();
+  }
+  if (placeTool.value === "draw_route") {
+    commitRouteDraft();
+  }
+  stopPlaceTool();
+  editingAreaId.value = null;
+  editingRouteId.value = id;
+  placeTool.value = "draw_route";
+  proximityWarning.value = "";
+  clearWarnCircle();
+  startRouteDraw();
+}
+
+/** Commit the in-progress route draft and leave edit/draw mode. */
+function finishRouteEdit() {
+  if (placeTool.value !== "draw_route") return;
+  commitRouteDraft();
+  placeTool.value = null;
+  stopPlaceTool();
+  editingRouteId.value = null;
+  renderDrawnRoutes();
+  renderOutline();
+}
+
+function renameRoute(id: string, name: string) {
+  const trimmed = name.trim() || "Route";
+  routes.value = routes.value.map((r) => (r.id === id ? { ...r, name: trimmed } : r));
+  renderDrawnRoutes();
+}
+
+function setRouteColor(id: string, color: string) {
+  const next = normalizeAreaColor(color);
+  routes.value = routes.value.map((r) => (r.id === id ? { ...r, color: next } : r));
+  renderDrawnRoutes();
+}
+
+function deleteRoute(id: string) {
+  if (editingRouteId.value === id) {
+    routeDraft.value = [];
+    editingRouteId.value = null;
+    routeGeometrySnapshot = null;
+    if (placeTool.value === "draw_route") {
+      placeTool.value = null;
+      stopPlaceTool();
+    }
+  }
+  routes.value = routes.value.filter((r) => r.id !== id);
+  renderDrawnRoutes();
+}
+
+function focusRoute(id: string) {
+  const route = routes.value.find((r) => r.id === id);
+  const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
+  if (!route || !map || !L || route.path.length < 2) return;
+  map.fitBounds(L.latLngBounds(route.path.map(([lat, lng]) => L.latLng(lat, lng))), {
+    padding: [48, 48],
+    maxZoom: 18,
+  });
 }
 
 function renameArea(id: string, name: string) {
@@ -803,12 +932,14 @@ function startOutlineDraw() {
   }
   snapshotAreaGeometry();
   renderOutline();
+  renderDrawnRoutes();
 
   const finish = () => {
     commitOutlineDraft();
     placeTool.value = null;
     stopPlaceTool();
     renderOutline();
+    renderDrawnRoutes();
   };
 
   const cancel = () => {
@@ -818,6 +949,7 @@ function startOutlineDraw() {
     restoreAreaGeometrySnapshot();
     editingAreaId.value = null;
     renderOutline();
+    renderDrawnRoutes();
   };
 
   const onClick = (e: LeafletMouseEvent) => {
@@ -933,9 +1065,10 @@ function renderOutline() {
   const editing = placeTool.value === "outline";
   const color = draftAreaColor();
 
+  const areasClickable = !editing && placeTool.value !== "draw_route";
   for (const area of areas.value) {
     if (editing && editingAreaId.value === area.id) continue;
-    addCommittedAreaPolygon(L, area, !editing);
+    addCommittedAreaPolygon(L, area, areasClickable);
   }
 
   if (!editing) return;
@@ -1089,6 +1222,385 @@ function addOutlineMidpointHandles(
   }
 }
 
+function snapshotRouteGeometry() {
+  routeGeometrySnapshot = {
+    id: editingRouteId.value,
+    path: routeDraft.value.map((p) => [p[0], p[1]] as [number, number]),
+  };
+}
+
+function restoreRouteGeometrySnapshot() {
+  if (!routeGeometrySnapshot) return;
+  const { id, path } = routeGeometrySnapshot;
+  routeGeometrySnapshot = null;
+  if (id) {
+    routes.value = routes.value.map((r) =>
+      r.id === id ? { ...r, path: path.map((p) => [p[0], p[1]] as [number, number]) } : r,
+    );
+  }
+}
+
+function newRouteId() {
+  return `route-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function nextRouteName() {
+  const used = new Set(routes.value.map((r) => r.name));
+  let n = 1;
+  while (used.has(`Route ${n}`)) n++;
+  return `Route ${n}`;
+}
+
+function draftRouteColor(): string {
+  if (editingRouteId.value) {
+    const route = routes.value.find((r) => r.id === editingRouteId.value);
+    if (route) return normalizeAreaColor(route.color);
+  }
+  // Prefer a different palette offset than areas so the first route ≠ first area.
+  return nextPaletteColor(
+    [
+      ...areas.value.map((a) => a.color),
+      ...routes.value.map((r) => r.color),
+    ],
+    1,
+  );
+}
+
+/** Append first point at end if the draft is open, so both ends connect. */
+function closeRouteLoopIfNeeded() {
+  const pts = routeDraft.value;
+  if (pts.length < 2) return;
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    routeDraft.value = [...pts, [first[0], first[1]] as [number, number]];
+  }
+}
+
+/** Commits draft route if it has ≥2 points. Returns whether a route was saved. */
+function commitRouteDraft() {
+  if (routeDraft.value.length >= 2) {
+    const path = routeDraft.value.map((p) => [p[0], p[1]] as [number, number]);
+    const id = editingRouteId.value;
+    if (id) {
+      routes.value = routes.value.map((r) => (r.id === id ? { ...r, path } : r));
+    } else {
+      routes.value = [
+        ...routes.value,
+        {
+          id: newRouteId(),
+          name: nextRouteName(),
+          color: draftRouteColor(),
+          path,
+        },
+      ];
+    }
+    routeDraft.value = [];
+    editingRouteId.value = null;
+    routeGeometrySnapshot = null;
+    return true;
+  }
+  routeDraft.value = [];
+  restoreRouteGeometrySnapshot();
+  editingRouteId.value = null;
+  return false;
+}
+
+function startRouteDraw() {
+  const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
+  if (!map || !L) return;
+  map.getContainer().style.cursor = "crosshair";
+  if (editingRouteId.value) {
+    const route = routes.value.find((r) => r.id === editingRouteId.value);
+    routeDraft.value = route
+      ? route.path.map((p) => [p[0], p[1]] as [number, number])
+      : [];
+  }
+  snapshotRouteGeometry();
+  renderDrawnRoutes();
+  renderOutline();
+
+  const finish = () => {
+    commitRouteDraft();
+    placeTool.value = null;
+    stopPlaceTool();
+    editingRouteId.value = null;
+    renderDrawnRoutes();
+    renderOutline();
+  };
+
+  const cancel = () => {
+    routeDraft.value = [];
+    placeTool.value = null;
+    stopPlaceTool();
+    restoreRouteGeometrySnapshot();
+    editingRouteId.value = null;
+    renderDrawnRoutes();
+    renderOutline();
+  };
+
+  const onClick = (e: LeafletMouseEvent) => {
+    const t = e.originalEvent.target as HTMLElement | null;
+    if (t?.closest?.(ROUTE_HANDLE_SEL)) return;
+    L.DomEvent.stopPropagation(e);
+    const pts = routeDraft.value;
+    if (pts.length >= 2) {
+      const last = L.latLng(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+      const first = L.latLng(pts[0][0], pts[0][1]);
+      // Click near start closes the loop (connect both ends), then finishes.
+      if (first.distanceTo(e.latlng) < 20) {
+        closeRouteLoopIfNeeded();
+        finish();
+        return;
+      }
+      // Click near the current end finishes an open path.
+      if (last.distanceTo(e.latlng) < 20) {
+        finish();
+        return;
+      }
+    }
+    routeDraft.value = [...pts, [e.latlng.lat, e.latlng.lng]];
+    renderDrawnRoutes();
+  };
+
+  const onDblClick = (e: LeafletMouseEvent) => {
+    const t = e.originalEvent.target as HTMLElement | null;
+    if (t?.closest?.(ROUTE_HANDLE_SEL)) return;
+    L.DomEvent.stopPropagation(e);
+    L.DomEvent.preventDefault(e.originalEvent);
+    finish();
+  };
+
+  const onKeyDown = (ev: KeyboardEvent) => {
+    if (ev.key === "Escape") {
+      cancel();
+    } else if ((ev.key === "Backspace" || ev.key === "Delete") && routeDraft.value.length) {
+      ev.preventDefault();
+      routeDraft.value = routeDraft.value.slice(0, -1);
+      renderDrawnRoutes();
+    }
+  };
+
+  map.on("click", onClick);
+  map.on("dblclick", onDblClick);
+  document.addEventListener("keydown", onKeyDown);
+  const wasDbl = map.doubleClickZoom.enabled();
+  if (wasDbl) map.doubleClickZoom.disable();
+
+  stopPlaceSession = () => {
+    map?.off("click", onClick);
+    map?.off("dblclick", onDblClick);
+    document.removeEventListener("keydown", onKeyDown);
+    if (wasDbl) map?.doubleClickZoom.enable();
+    if (map) map.getContainer().style.cursor = "";
+  };
+}
+
+function syncRouteShape(pts: [number, number][]) {
+  const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
+  if (!L || !routeShape) return;
+  routeShape.setLatLngs(pts.map(([lat, lng]) => L.latLng(lat, lng)));
+}
+
+function addCommittedRoutePolyline(
+  L: typeof import("leaflet").default,
+  route: MapRoute,
+  interactive: boolean,
+) {
+  if (!drawnRoutesLayer || route.path.length < 2) return;
+  const color = normalizeAreaColor(route.color);
+  const latlngs = route.path.map(([lat, lng]) => L.latLng(lat, lng));
+  const line = L.polyline(latlngs, {
+    color,
+    weight: 4,
+    opacity: 0.9,
+    interactive,
+  });
+  line.bindTooltip(route.name, {
+    sticky: true,
+    direction: "top",
+    opacity: 0.95,
+    className: "area-tooltip",
+  });
+  if (interactive) {
+    line.on("click", (ev) => {
+      L.DomEvent.stopPropagation(ev);
+      editRoute(route.id);
+    });
+  }
+  drawnRoutesLayer.addLayer(line);
+  for (const ll of latlngs) {
+    drawnRoutesLayer.addLayer(
+      L.circleMarker(ll, {
+        radius: 4,
+        color,
+        fillColor: "#fff",
+        fillOpacity: 1,
+        weight: 2,
+        interactive: false,
+      }),
+    );
+  }
+}
+
+function renderDrawnRoutes() {
+  const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
+  if (!drawnRoutesLayer || !L || routeDragging) return;
+  drawnRoutesLayer.clearLayers();
+  routeShape = null;
+  const editing = placeTool.value === "draw_route";
+  const color = draftRouteColor();
+
+  const routesClickable = !editing && placeTool.value !== "outline";
+  for (const route of routes.value) {
+    if (editing && editingRouteId.value === route.id) continue;
+    addCommittedRoutePolyline(L, route, routesClickable);
+  }
+
+  if (!editing) return;
+
+  const pts = routeDraft.value;
+  if (!pts.length) return;
+  const latlngs = pts.map(([lat, lng]) => L.latLng(lat, lng));
+
+  if (pts.length >= 2) {
+    routeShape = L.polyline(latlngs, {
+      color,
+      weight: 4,
+      dashArray: "6 4",
+    });
+    drawnRoutesLayer.addLayer(routeShape);
+  }
+
+  latlngs.forEach((ll, index) => {
+    const isEnd = index === 0 || index === latlngs.length - 1;
+    const vertex = L.marker(ll, {
+      draggable: true,
+      autoPan: true,
+      zIndexOffset: 1200,
+      icon: L.divIcon({
+        className: "outline-vertex-wrap",
+        html: `<div class="outline-vertex${isEnd ? " outline-vertex-first" : ""}" style="border-color:${isEnd ? "#f0a202" : color}" title="Drag to move · double-click to remove"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      }),
+    });
+    vertex.on("click", (ev) => {
+      L.DomEvent.stopPropagation(ev);
+      // Vertex markers intercept map clicks — handle close/finish here.
+      if (routeDraft.value.length < 2) return;
+      if (index === 0) {
+        closeRouteLoopIfNeeded();
+        finishRouteEdit();
+        return;
+      }
+      if (index === routeDraft.value.length - 1) {
+        finishRouteEdit();
+      }
+    });
+    vertex.on("dblclick", (ev) => {
+      L.DomEvent.stopPropagation(ev);
+      L.DomEvent.preventDefault(ev.originalEvent);
+      routeDraft.value = routeDraft.value.filter((_, i) => i !== index);
+      renderDrawnRoutes();
+    });
+    vertex.on("dragstart", () => {
+      routeDragging = true;
+    });
+    vertex.on("drag", (ev) => {
+      const pos = (ev.target as Marker).getLatLng();
+      const next = routeDraft.value.map((p, i) =>
+        i === index ? ([pos.lat, pos.lng] as [number, number]) : p,
+      );
+      routeDraft.value = next;
+      syncRouteShape(next);
+    });
+    vertex.on("dragend", () => {
+      routeDragging = false;
+      renderDrawnRoutes();
+    });
+    drawnRoutesLayer!.addLayer(vertex);
+  });
+
+  if (pts.length >= 2) {
+    addRouteMidpointHandles(L, latlngs, color);
+  }
+}
+
+const ROUTE_HANDLE_SEL = ".outline-vertex, .outline-vertex-wrap, .outline-midpoint, .outline-midpoint-wrap";
+
+/** Mid-edge handles for open polylines (no closing edge). */
+function addRouteMidpointHandles(
+  L: typeof import("leaflet").default,
+  latlngs: import("leaflet").LatLng[],
+  color: string,
+) {
+  if (!drawnRoutesLayer) return;
+  const n = latlngs.length;
+  for (let i = 0; i < n - 1; i++) {
+    const insertAt = i + 1;
+    const a = latlngs[i];
+    const b = latlngs[i + 1];
+    const mid = L.latLng((a.lat + b.lat) / 2, (a.lng + b.lng) / 2);
+    let liveIndex: number | null = null;
+    let suppressClick = false;
+
+    const marker = L.marker(mid, {
+      draggable: true,
+      autoPan: true,
+      zIndexOffset: 1100,
+      icon: L.divIcon({
+        className: "outline-midpoint-wrap",
+        html: `<div class="outline-midpoint" style="border-color:${color};background:${color}59" title="Drag or click to split edge"></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6],
+      }),
+    });
+
+    marker.on("click", (ev) => {
+      L.DomEvent.stopPropagation(ev);
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
+      const pos = marker.getLatLng();
+      const next = [...routeDraft.value];
+      next.splice(insertAt, 0, [pos.lat, pos.lng]);
+      routeDraft.value = next;
+      renderDrawnRoutes();
+    });
+    marker.on("dblclick", (ev) => {
+      L.DomEvent.stopPropagation(ev);
+      L.DomEvent.preventDefault(ev.originalEvent);
+    });
+    marker.on("dragstart", () => {
+      suppressClick = true;
+      routeDragging = true;
+      const pos = marker.getLatLng();
+      const next = [...routeDraft.value];
+      next.splice(insertAt, 0, [pos.lat, pos.lng]);
+      routeDraft.value = next;
+      liveIndex = insertAt;
+      syncRouteShape(next);
+    });
+    marker.on("drag", (ev) => {
+      if (liveIndex == null) return;
+      const pos = (ev.target as Marker).getLatLng();
+      const next = routeDraft.value.map((p, i) =>
+        i === liveIndex ? ([pos.lat, pos.lng] as [number, number]) : p,
+      );
+      routeDraft.value = next;
+      syncRouteShape(next);
+    });
+    marker.on("dragend", () => {
+      routeDragging = false;
+      liveIndex = null;
+      renderDrawnRoutes();
+    });
+    drawnRoutesLayer.addLayer(marker);
+  }
+}
+
 function clearSelection() {
   if (!selected.value.size) return;
   selected.value = new Set();
@@ -1220,6 +1732,17 @@ function importPlan(plan: CampfirePlan) {
   areaDraft.value = [];
   editingAreaId.value = null;
   areaGeometrySnapshot = null;
+  routes.value = plan.routes
+    .filter((r) => r.path.length >= 2)
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      color: normalizeAreaColor(r.color),
+      path: r.path.map((p) => [p[0], p[1]] as [number, number]),
+    }));
+  routeDraft.value = [];
+  editingRouteId.value = null;
+  routeGeometrySnapshot = null;
   try {
     const settings: ExportSettings = {
       ...DEFAULT_EXPORT_SETTINGS,
@@ -1238,12 +1761,14 @@ function importPlan(plan: CampfirePlan) {
   }
   enterCampsiteEdit();
   renderOutline();
-  if (map && (ids.length || campsitePois.value.length || areas.value.length)) {
+  renderDrawnRoutes();
+  if (map && (ids.length || campsitePois.value.length || areas.value.length || routes.value.length)) {
     const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
     if (L) {
       const pts: [number, number][] = [];
       for (const p of [...exportPois.value, ...campsitePois.value]) pts.push([p.lat, p.lng]);
       for (const a of areas.value) pts.push(...a.ring);
+      for (const r of routes.value) pts.push(...r.path);
       if (pts.length) {
         map.fitBounds(L.latLngBounds(pts.map(([lat, lng]) => L.latLng(lat, lng))), {
           padding: [48, 48],

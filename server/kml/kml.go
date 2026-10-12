@@ -231,9 +231,9 @@ func dataURI(png []byte) string {
 
 func defaultLayers() []ExportLayer {
 	return []ExportLayer{
-		{Name: "Existing", Types: []string{"gym", "pokestop", "powerspot"}},
-		{Name: "Routes", Types: []string{"route"}},
+		{Name: "Existing", Types: []string{"gym", "pokestop", "powerspot", "route"}},
 		{Name: "Areas", Types: []string{"outline"}},
+		{Name: "Campsite Routes", Types: []string{"drawn_route"}},
 		{Name: "Ranges", Types: []string{"range_wayfarer"}},
 		{Name: "Campsite", Types: []string{"campsite_gym", "campsite_pokestop", "campsite_powerspot"}},
 	}
@@ -288,6 +288,22 @@ func buildKMLXML(name string, pois []poi.POI, iconRefs map[string]string, opts E
 				seenOutlineStyles[styleID] = true
 			}
 			buckets[idx] = append(buckets[idx], outlinePlacemark(a, styleID))
+		}
+	}
+
+	if idx, ok := typeToLayer["drawn_route"]; ok {
+		seenRouteStyles := map[string]bool{"drawn_route": true}
+		for _, rt := range opts.Routes {
+			if len(rt.Path) < 2 {
+				continue
+			}
+			lineStyleID := drawnRouteLineStyleID(rt.Color)
+			if !seenRouteStyles[lineStyleID] {
+				line := hexToKML(normalizeHexColor(rt.Color), 0xff)
+				doc.Styles, doc.StyleMaps = appendLinePolyStyleMap(doc.Styles, doc.StyleMaps, lineStyleID, line, 4, "")
+				seenRouteStyles[lineStyleID] = true
+			}
+			buckets[idx] = append(buckets[idx], drawnRoutePlacemarks(rt, lineStyleID)...)
 		}
 	}
 
@@ -384,6 +400,7 @@ func sharedStyles(iconRefs map[string]string) ([]style, []styleMap) {
 	addLinePolyStyleMap("route-line", routeLineKML, 4, "")
 	addIconStyleMap("route-end", iconRefs["route-end"])
 	addLinePolyStyleMap("outline", "ff8cff5b", 3, "405b8cff")
+	addLinePolyStyleMap("drawn_route", "ff8cff5b", 4, "")
 
 	for _, def := range exportRanges {
 		addLinePolyStyleMap(def.key, hexToKML(def.color, 0xff), 2, hexToKML(def.color, 0x40))
@@ -551,6 +568,58 @@ func outlinePlacemark(area ExportArea, styleID string) placemark {
 			OuterBoundaryIs: outerBoundary{
 				LinearRing: linearRing{Coordinates: strings.Join(coords, " ")},
 			},
+		},
+	}
+}
+
+// drawnRouteLineStyleID returns a KML style id for a drawn route color.
+// Default blue reuses the shared drawn_route style.
+func drawnRouteLineStyleID(hex string) string {
+	h := strings.TrimPrefix(normalizeHexColor(hex), "#")
+	if h == "5b8cff" {
+		return "drawn_route"
+	}
+	return "drawn_route_" + h
+}
+
+// drawnRoutePlacemarks emits start + path + end, matching Campfire route layout.
+// ExtendedData Type uses the route name for all three placemarks.
+func drawnRoutePlacemarks(rt ExportRoute, lineStyleID string) []placemark {
+	name := strings.TrimSpace(rt.Name)
+	if name == "" {
+		name = "Route"
+	}
+	coords := make([]string, 0, len(rt.Path))
+	for _, pt := range rt.Path {
+		coords = append(coords, fmt.Sprintf("%.7f,%.7f,0", pt[1], pt[0]))
+	}
+	start := rt.Path[0]
+	endPt := rt.Path[len(rt.Path)-1]
+	if lineStyleID == "" {
+		lineStyleID = drawnRouteLineStyleID(rt.Color)
+	}
+	desc := fmt.Sprintf("%s · %.6f, %.6f · Type: %s", name, start[0], start[1], name)
+	return []placemark{
+		{
+			Name:         name,
+			Description:  desc,
+			StyleURL:     "#route",
+			ExtendedData: typeData(name),
+			Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", start[1], start[0])},
+		},
+		{
+			Name:         name,
+			Description:  desc,
+			StyleURL:     "#" + lineStyleID,
+			ExtendedData: typeData(name),
+			LineString:   &line{Tessellate: 1, Coordinates: strings.Join(coords, " ")},
+		},
+		{
+			Name:         name + " (end)",
+			Description:  desc,
+			StyleURL:     "#route-end",
+			ExtendedData: typeData(name),
+			Point:        &point{Coordinates: fmt.Sprintf("%.7f,%.7f,0", endPt[1], endPt[0])},
 		},
 	}
 }

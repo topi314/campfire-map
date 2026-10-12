@@ -151,6 +151,81 @@
       </div>
     </div>
 
+    <div class="section" :class="{ 'section-collapsed': collapsedSections.has('routes') }">
+      <button
+        type="button"
+        class="section-toggle"
+        :aria-expanded="!collapsedSections.has('routes')"
+        @click="toggleSection('routes')"
+      >
+        <span class="section-chevron" aria-hidden="true" />
+        Campsite Routes
+        <span class="counts">({{ routes.length }})</span>
+      </button>
+      <div v-show="!collapsedSections.has('routes')" class="section-body">
+        <div class="btn-row btn-row-nowrap">
+          <button
+            type="button"
+            class="btn-with-icon"
+            :class="{ primary: drawingNewRoute }"
+            @click="onDrawRouteClick"
+          >
+            <UiIcon :name="drawingNewRoute ? 'check' : 'route'" />
+            {{ drawingNewRoute ? "Done" : "Add route" }}
+          </button>
+        </div>
+        <div v-if="routes.length" class="area-list">
+          <div
+            v-for="route in routes"
+            :key="route.id"
+            class="area-item"
+            :class="{ active: editingRouteId === route.id }"
+          >
+            <div class="area-name-row">
+              <input
+                class="area-color"
+                type="color"
+                :value="route.color || '#5b8cff'"
+                :aria-label="`Color for ${route.name}`"
+                title="Route color"
+                @input="onRouteColor(route.id, ($event.target as HTMLInputElement).value)"
+                @click.stop
+              />
+              <input
+                class="area-name"
+                :value="route.name"
+                :aria-label="`Rename ${route.name}`"
+                @change="onRenameRoute(route.id, ($event.target as HTMLInputElement).value)"
+                @click.stop
+              />
+            </div>
+            <div class="area-actions">
+              <button type="button" class="btn-with-icon" title="Focus" @click="emit('focus-route', route.id)">
+                Focus
+              </button>
+              <button
+                type="button"
+                class="btn-with-icon"
+                :class="{ primary: editingRouteId === route.id }"
+                :title="editingRouteId === route.id ? 'Finish editing' : 'Edit path'"
+                @click="editingRouteId === route.id ? emit('finish-route-edit') : emit('edit-route', route.id)"
+              >
+                {{ editingRouteId === route.id ? "Done" : "Edit" }}
+              </button>
+              <button
+                type="button"
+                class="poi-remove"
+                title="Delete route"
+                @click.stop="emit('delete-route', route.id)"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="section" :class="{ 'section-collapsed': collapsedSections.has('place') }">
       <button
         type="button"
@@ -217,7 +292,11 @@
             </button>
           </div>
         </template>
-        <p v-if="placeTool && placeTool !== 'outline'" class="counts" style="margin-top: 6px">
+        <p
+          v-if="placeTool && placeTool !== 'outline' && placeTool !== 'draw_route'"
+          class="counts"
+          style="margin-top: 6px"
+        >
           Tap the map to place. Too-close spots are marked in red (under 30 m). Turn on Min POI spacing in Ranges to show rings.
         </p>
         <p v-if="proximityWarning" class="export-warning" style="margin-top: 8px">{{ proximityWarning }}</p>
@@ -345,6 +424,7 @@
       :open="exportOpen"
       :export-pois="allExportPois"
       :area-count="exportableAreaCount"
+      :route-count="exportableRouteCount"
       :exporting="exporting"
       @close="exportOpen = false"
       @export="runExport"
@@ -367,6 +447,7 @@ import {
   readCampfirePlanFile,
   type CampfirePlan,
   type MapArea,
+  type MapRoute,
 } from "~/types/plan";
 import {
   LAYER_TYPES,
@@ -388,6 +469,8 @@ const props = defineProps<{
   placeTool: PlaceTool;
   areas: MapArea[];
   editingAreaId: string | null;
+  routes: MapRoute[];
+  editingRouteId: string | null;
   proximityWarning: string;
   campsiteNote: string;
 }>();
@@ -404,6 +487,12 @@ const emit = defineEmits<{
   "delete-area": [id: string];
   "focus-area": [id: string];
   "select-pois-in-area": [id: string];
+  "edit-route": [id: string];
+  "finish-route-edit": [];
+  "rename-route": [id: string, name: string];
+  "set-route-color": [id: string, color: string];
+  "delete-route": [id: string];
+  "focus-route": [id: string];
   "clear-selection": [];
   "exclude-campsite-pois": [];
   "convert-campsite-pois": [];
@@ -418,7 +507,7 @@ const groupByLayer = defineModel<boolean>("groupByLayer", { required: true });
 const query = ref("");
 const exportOpen = ref(false);
 const exporting = ref(false);
-type ExportSidebarSection = "area" | "place" | "exportList";
+type ExportSidebarSection = "area" | "routes" | "place" | "exportList";
 const collapsedGroups = ref<Set<string>>(new Set());
 const collapsedSections = ref<Set<ExportSidebarSection>>(new Set());
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -438,9 +527,14 @@ const allExportPois = computed(() => [
 
 const exportableAreas = computed(() => props.areas.filter((a) => a.ring.length >= 3));
 const exportableAreaCount = computed(() => exportableAreas.value.length);
+const exportableRoutes = computed(() => props.routes.filter((r) => r.path.length >= 2));
+const exportableRouteCount = computed(() => exportableRoutes.value.length);
 
 const canExport = computed(
-  () => allExportPois.value.length > 0 || exportableAreaCount.value > 0,
+  () =>
+    allExportPois.value.length > 0 ||
+    exportableAreaCount.value > 0 ||
+    exportableRouteCount.value > 0,
 );
 
 const listed = computed(() => {
@@ -499,13 +593,19 @@ function toggleGroup(key: string) {
 }
 
 function setTool(tool: PlaceTool) {
-  // Place tools lock the map; draw area does not (use Lock map separately).
-  if (tool && tool !== "outline" && !props.campsiteEdit) emit("enter-campsite");
+  // Place tools lock the map; draw area/route does not (use Lock map separately).
+  if (tool && tool !== "outline" && tool !== "draw_route" && !props.campsiteEdit) {
+    emit("enter-campsite");
+  }
   emit("set-place-tool", tool);
 }
 
 const drawingNewArea = computed(
   () => props.placeTool === "outline" && !props.editingAreaId,
+);
+
+const drawingNewRoute = computed(
+  () => props.placeTool === "draw_route" && !props.editingRouteId,
 );
 
 /** Finish a new area draw with Done; otherwise start a fresh draw. */
@@ -517,12 +617,28 @@ function onDrawAreaClick() {
   setTool("outline");
 }
 
+function onDrawRouteClick() {
+  if (drawingNewRoute.value) {
+    emit("finish-route-edit");
+    return;
+  }
+  setTool("draw_route");
+}
+
 function onRenameArea(id: string, name: string) {
   emit("rename-area", id, name);
 }
 
 function onAreaColor(id: string, color: string) {
   emit("set-area-color", id, color);
+}
+
+function onRenameRoute(id: string, name: string) {
+  emit("rename-route", id, name);
+}
+
+function onRouteColor(id: string, color: string) {
+  emit("set-route-color", id, color);
 }
 
 function onListClick(p: Poi) {
@@ -566,6 +682,7 @@ function savePlan() {
     existingPois: props.exportPois,
     campsitePois: props.campsitePois,
     areas: props.areas,
+    routes: props.routes,
     settings,
   });
   downloadCampfirePlan(plan, sanitizeFileName(settings.fileName));
@@ -582,7 +699,12 @@ async function onImportFile(ev: Event) {
   if (!file) return;
   try {
     const plan = await readCampfirePlanFile(file);
-    if (props.exportPois.length || props.campsitePois.length || props.areas.length) {
+    if (
+      props.exportPois.length ||
+      props.campsitePois.length ||
+      props.areas.length ||
+      props.routes.length
+    ) {
       if (!confirm("Replace the current plan with this file?")) return;
     }
     emit("import-plan", plan);
@@ -601,6 +723,7 @@ async function exportBlob(settings: ExportSettings) {
       format: settings.format,
       pois,
       areas: exportableAreas.value.map(({ name, color, ring }) => ({ name, color, ring })),
+      routes: exportableRoutes.value.map(({ name, color, path }) => ({ name, color, path })),
       layers: settings.layers.map(({ name, types }) => ({ name, types })),
     }),
   });

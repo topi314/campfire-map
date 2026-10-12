@@ -218,6 +218,7 @@ type exportReq struct {
 	Format  string            `json:"format"`
 	POIs    []poi.POI         `json:"pois"`
 	Areas   []kml.ExportArea  `json:"areas,omitempty"`
+	Routes  []kml.ExportRoute `json:"routes,omitempty"`
 	Outline [][2]float64      `json:"outline,omitempty"` // legacy single ring
 	Layers  []kml.ExportLayer `json:"layers,omitempty"`
 }
@@ -240,7 +241,14 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if len(req.POIs) == 0 && !hasAreas {
+	hasRoutes := false
+	for _, rt := range req.Routes {
+		if len(rt.Path) >= 2 {
+			hasRoutes = true
+			break
+		}
+	}
+	if len(req.POIs) == 0 && !hasAreas && !hasRoutes {
 		http.Error(w, "no pois selected", http.StatusBadRequest)
 		return
 	}
@@ -252,7 +260,7 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "kmz"
 	}
-	opts := kml.ExportOptions{Layers: req.Layers, Areas: areas, Outline: req.Outline}
+	opts := kml.ExportOptions{Layers: req.Layers, Areas: areas, Routes: req.Routes, Outline: req.Outline}
 	var (
 		data     []byte
 		err      error

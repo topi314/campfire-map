@@ -106,6 +106,42 @@ func TestLegacyOutlineExport(t *testing.T) {
 	}
 }
 
+func TestDrawnRouteExport(t *testing.T) {
+	data, err := BuildKML("guides", nil, ExportOptions{
+		Layers: []ExportLayer{{Name: "Campsite Routes", Types: []string{"drawn_route"}}},
+		Routes: []ExportRoute{
+			{
+				Name:  "Trail A",
+				Color: "#e85d4c",
+				Path:  [][2]float64{{52.5, 13.4}, {52.51, 13.41}, {52.52, 13.42}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, needle := range []string{
+		"Campsite Routes",
+		"Trail A",
+		"<LineString>",
+		"#route",
+		"#route-end",
+		`#drawn_route_e85d4c`,
+		`<StyleMap id="drawn_route_e85d4c"`,
+		"<value>Trail A</value>",
+	} {
+		if !strings.Contains(s, needle) {
+			t.Errorf("kml missing %q", needle)
+		}
+	}
+	if !folderContains(s, "Campsite Routes", "<LineString>") ||
+		!folderContains(s, "Campsite Routes", "#route") ||
+		!folderContains(s, "Campsite Routes", "#drawn_route_e85d4c") {
+		t.Error("drawn route start/path/end should be in Campsite Routes folder")
+	}
+}
+
 func TestBuildKML(t *testing.T) {
 	data, err := BuildKML("Test map", []poi.POI{
 		{ID: "g1", Type: poi.TypeGym, Name: "Gym One", Lat: 52.5, Lng: 13.4},

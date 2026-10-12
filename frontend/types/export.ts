@@ -14,7 +14,7 @@ import {
   type PoiType,
 } from "~/types/poi";
 
-export type PlaceTool = "pokestop" | "gym" | "powerspot" | "outline" | null;
+export type PlaceTool = "pokestop" | "gym" | "powerspot" | "outline" | "draw_route" | null;
 
 /** Assignable My Maps layer type chips (not individual POIs). */
 export type LayerTypeKey =
@@ -23,6 +23,7 @@ export type LayerTypeKey =
   | "campsite_pokestop"
   | "campsite_powerspot"
   | "outline"
+  | "drawn_route"
   | "range_wayfarer"
   | "range_lure"
   | "range_interaction";
@@ -56,6 +57,7 @@ export const CAMPSITE_LAYER_TYPES: LayerTypeKey[] = [
   "campsite_pokestop",
   "campsite_powerspot",
   "outline",
+  "drawn_route",
 ];
 
 export const RANGE_LAYER_TYPES: LayerTypeKey[] = [
@@ -80,6 +82,7 @@ export const LAYER_TYPE_LABELS: Record<LayerTypeKey, string> = {
   campsite_pokestop: "Campsite PokéStops",
   campsite_powerspot: "Campsite Powerspots",
   outline: "Areas",
+  drawn_route: "Campsite Routes",
   range_wayfarer: "Range · Min POI spacing (30 m)",
   range_lure: "Range · Lure (40 m)",
   range_interaction: "Range · Interaction (80 m)",
@@ -108,23 +111,23 @@ export function rangeDefForLayerType(t: LayerTypeKey): RadiusOverlayDef | null {
   return RADIUS_OVERLAYS.find((d) => d.id === id) ?? null;
 }
 
-/** Campsite planner: existing neighbors, routes, areas, planned campsite pins. */
+/** Campsite planner: existing neighbors (incl. routes), areas, planned campsite pins. */
 export function defaultCampsiteExportLayers(): ExportLayer[] {
   return [
     {
       id: "layer-existing",
       name: "Existing",
-      types: ["gym", "pokestop", "powerspot"],
-    },
-    {
-      id: "layer-route",
-      name: "Routes",
-      types: ["route"],
+      types: ["gym", "pokestop", "powerspot", "route"],
     },
     {
       id: "layer-play-area",
       name: "Areas",
       types: ["outline"],
+    },
+    {
+      id: "layer-guide-routes",
+      name: "Campsite Routes",
+      types: ["drawn_route"],
     },
     {
       id: "layer-ranges",
@@ -207,18 +210,49 @@ export function normalizeExportLayers(layers: ExportLayer[] | undefined | null):
     }
     camp.types.push(...missing);
   }
-  // Campsite layout used to leave routes unassigned (omitted from My Maps).
+  // Fold a dedicated Routes-only layer into Existing (campsite default no longer has one).
+  const routesOnlyIdx = base.findIndex(
+    (l) => /^routes$/i.test(l.name.trim()) && l.types.length === 1 && l.types[0] === "route",
+  );
+  if (routesOnlyIdx >= 0) {
+    const existing = base.find((l) => /existing/i.test(l.name));
+    if (existing && !existing.types.includes("route")) {
+      existing.types.push("route");
+      seen.add("route");
+    }
+    if (existing) base.splice(routesOnlyIdx, 1);
+  }
+  // Routes stay with Existing when unassigned.
   if (!seen.has("route")) {
-    const afterExisting = base.findIndex((l) => /existing/i.test(l.name));
-    const routeLayer: ExportLayer = { id: newLayerId(), name: "Routes", types: ["route"] };
-    if (afterExisting >= 0) base.splice(afterExisting + 1, 0, routeLayer);
-    else base.push(routeLayer);
+    const existing = base.find((l) => /existing/i.test(l.name));
+    if (existing) {
+      existing.types.push("route");
+      seen.add("route");
+    }
   }
   // Outline layer was formerly labeled "Play Area".
   for (const layer of base) {
     if (layer.name === "Play Area" && layer.types.includes("outline")) {
       layer.name = "Areas";
     }
+    if (
+      (layer.name === "Guide routes" || layer.name === "Routes") &&
+      layer.types.includes("drawn_route")
+    ) {
+      layer.name = "Campsite Routes";
+    }
+  }
+  // Drawn routes layer (separate from Campfire / PoGo routes).
+  if (!seen.has("drawn_route")) {
+    const afterAreas = base.findIndex((l) => l.types.includes("outline") || /^areas$/i.test(l.name));
+    const routesLayer: ExportLayer = {
+      id: newLayerId(),
+      name: "Campsite Routes",
+      types: ["drawn_route"],
+    };
+    if (afterAreas >= 0) base.splice(afterAreas + 1, 0, routesLayer);
+    else base.push(routesLayer);
+    seen.add("drawn_route");
   }
   return base;
 }
@@ -290,6 +324,7 @@ export function estimateMyMapsFolders(
   pois: Poi[],
   layers: ExportLayer[],
   areaCount: number,
+  drawnRouteCount = 0,
 ): number {
   const counts = new Map<string, number>();
   for (const layer of layers) {
@@ -311,6 +346,11 @@ export function estimateMyMapsFolders(
   if (areaCount > 0) {
     const layerId = typeToLayer.get("outline");
     if (layerId) counts.set(layerId, (counts.get(layerId) || 0) + areaCount);
+  }
+  if (drawnRouteCount > 0) {
+    const layerId = typeToLayer.get("drawn_route");
+    // Each drawn route exports as start + path + end.
+    if (layerId) counts.set(layerId, (counts.get(layerId) || 0) + drawnRouteCount * 3);
   }
   for (const t of RANGE_LAYER_TYPES) {
     const layerId = typeToLayer.get(t);
@@ -346,6 +386,7 @@ export function campsiteLayerTypeIncluded(key: LayerTypeKey, includeTypes: Recor
     case "campsite_powerspot":
       return includeTypes.powerspot;
     case "outline":
+    case "drawn_route":
     case "range_wayfarer":
       return true;
     case "range_lure":
