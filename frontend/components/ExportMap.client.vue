@@ -65,6 +65,7 @@
           :place-tool="placeTool"
           :areas="areas"
           :editing-area-id="editingAreaId"
+          :selected-area-id="selectedAreaId"
           :routes="routes"
           :editing-route-id="editingRouteId"
           :proximity-warning="proximityWarning"
@@ -154,7 +155,7 @@ import {
   type Poi,
   type PoiType,
 } from "~/types/poi";
-import { POI_POPUP_OPTS, poiPopupHtml } from "~/utils/poiPopup";
+import { POI_POPUP_OPTS, areaPopupHtml, poiPopupHtml } from "~/utils/poiPopup";
 import { attachExportGestures, attachLongPress, eventHasShift } from "~/utils/exportGesture";
 import { findNearbyPoi, pointInPolygon } from "~/utils/proximity";
 
@@ -194,6 +195,8 @@ const radiusOverlays = ref<RadiusOverlayState>({ ...storedUi.radiusOverlays });
 const areaDraft = ref<[number, number][]>([]);
 /** When set, draft edits that area; null means drawing a new area. */
 const editingAreaId = ref<string | null>(null);
+/** Highlighted on the map and in the list. Distinct from shape editing. */
+const selectedAreaId = ref<string | null>(null);
 const routeDraft = ref<[number, number][]>([]);
 /** When set, draft edits that route; null means drawing a new route. */
 const editingRouteId = ref<string | null>(null);
@@ -264,6 +267,9 @@ let proximityRadiiLayer: LayerGroup | null = null;
 let outlineShape: Polyline | Polygon | null = null;
 let outlineFill: Polygon | null = null;
 let outlineDragging = false;
+/** Polygon whose area popup is open, so a map click can close it without touching POI popups. */
+let areaPopupLayer: Polygon | null = null;
+let suppressAreaPopupClose = false;
 let routeShape: Polyline | null = null;
 let routeDragging = false;
 let stopPlaceSession: (() => void) | null = null;
@@ -321,6 +327,15 @@ onMounted(async () => {
     persistMapView();
     showCachedViewport();
     if (!campsiteEdit.value) scheduleLoad();
+  });
+  map.on("click", () => {
+    if (areaPopupLayer) {
+      areaPopupLayer.closePopup();
+      return;
+    }
+    if (!selectedAreaId.value) return;
+    selectedAreaId.value = null;
+    if (placeTool.value !== "outline") applyAreaHighlight();
   });
 
   if (enabled.value.powerspot && !canLoadPowerspots()) {
@@ -638,6 +653,12 @@ function convertCampsiteLabeledToPlanned() {
   nextTick(() => map?.invalidateSize());
 }
 
+/** PokéStop / Gym / Powerspot drop mode — map clicks must not edit areas or routes. */
+function placingPoi(): boolean {
+  const tool = placeTool.value;
+  return tool === "pokestop" || tool === "gym" || tool === "powerspot";
+}
+
 function setPlaceTool(tool: PlaceTool) {
   if (tool === "outline") {
     startNewAreaDraw();
@@ -687,9 +708,102 @@ function startNewAreaDraw() {
   startOutlineDraw();
 }
 
+function selectArea(id: string) {
+  selectedAreaId.value = id;
+  applyAreaHighlight();
+}
+
+function applyAreaHighlight() {
+  if (!outlineLayer) return;
+  const selected = selectedAreaId.value;
+  outlineLayer.eachLayer((layer) => {
+    const id = (layer as Polygon & { areaId?: string }).areaId;
+    if (!id || typeof (layer as Polygon).setStyle !== "function") return;
+    const area = areas.value.find((a) => a.id === id);
+    const color = normalizeAreaColor(area?.color);
+    const highlighted = id === selected;
+    (layer as Polygon).setStyle({
+      color,
+      weight: highlighted ? 3 : 2,
+      fillColor: color,
+      fillOpacity: highlighted ? 0.28 : 0.12,
+    });
+  });
+}
+
+function areaPopupContent(id: string) {
+  const area = areas.value.find((a) => a.id === id);
+  if (!area) return "";
+  const inside = currentlyShownPois().filter((p) => poiInsideOutline(p, area.ring));
+  const allInsideSelected = inside.length > 0 && inside.every((p) => selected.value.has(p.id));
+  return areaPopupHtml(area, inside.length, allInsideSelected);
+}
+
+function syncAreaPopupContent(layer: Polygon, id: string) {
+  const popup = layer.getPopup();
+  if (!popup?.isOpen()) return;
+  suppressAreaPopupClose = true;
+  try {
+    popup.setContent(areaPopupContent(id));
+  } finally {
+    suppressAreaPopupClose = false;
+  }
+}
+
+function ensureAreaPopupActions(layer: Polygon, id: string) {
+  const root = layer.getPopup()?.getElement();
+  if (!root || root.dataset.areaPopupActions === "1") return;
+  root.dataset.areaPopupActions = "1";
+  root.addEventListener("click", (ev) => {
+    const t = ev.target as HTMLElement | null;
+    if (!t) return;
+    if (t.closest("[data-area-edit]")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      layer.closePopup();
+      editArea(id);
+      return;
+    }
+    if (t.closest("[data-area-select-pois]")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if ((t.closest("[data-area-select-pois]") as HTMLButtonElement).disabled) return;
+      selectPoisInArea(id);
+      syncAreaPopupContent(layer, id);
+      return;
+    }
+    if (t.closest("[data-area-delete]")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      layer.closePopup();
+      deleteArea(id);
+    }
+  });
+}
+
+function attachAreaPopup(layer: Polygon, id: string) {
+  layer.bindPopup(() => areaPopupContent(id), POI_POPUP_OPTS);
+  layer.on("popupopen", () => {
+    areaPopupLayer = layer;
+    ensureAreaPopupActions(layer, id);
+    nextTick(() => {
+      if (layer.getPopup()?.isOpen()) syncAreaPopupContent(layer, id);
+    });
+  });
+  layer.on("popupclose", () => {
+    if (areaPopupLayer === layer) areaPopupLayer = null;
+    if (suppressAreaPopupClose) return;
+    if (selectedAreaId.value === id && editingAreaId.value !== id) {
+      selectedAreaId.value = null;
+      applyAreaHighlight();
+    }
+  });
+}
+
 function editArea(id: string) {
   const area = areas.value.find((a) => a.id === id);
   if (!area) return;
+  selectedAreaId.value = id;
   if (placeTool.value === "outline") {
     commitOutlineDraft();
   }
@@ -812,6 +926,7 @@ function setAreaColor(id: string, color: string) {
 }
 
 function deleteArea(id: string) {
+  if (selectedAreaId.value === id) selectedAreaId.value = null;
   if (editingAreaId.value === id) {
     areaDraft.value = [];
     editingAreaId.value = null;
@@ -1022,23 +1137,26 @@ function addCommittedAreaPolygon(
   if (!outlineLayer || area.ring.length < 3) return;
   const color = normalizeAreaColor(area.color);
   const latlngs = area.ring.map(([lat, lng]) => L.latLng(lat, lng));
+  const highlighted = selectedAreaId.value === area.id;
   const poly = L.polygon(latlngs, {
     color,
-    weight: 2,
+    weight: highlighted ? 3 : 2,
     fillColor: color,
-    fillOpacity: 0.12,
+    fillOpacity: highlighted ? 0.28 : 0.12,
     interactive,
   });
-  poly.bindTooltip(area.name, {
-    sticky: true,
-    direction: "top",
-    opacity: 0.95,
-    className: "area-tooltip",
-  });
+  (poly as Polygon & { areaId?: string }).areaId = area.id;
   if (interactive) {
+    // mousedown would focus the SVG path and the browser draws a rectangle
+    // around its bounding box. Highlight stays on the polygon itself.
+    poly.on("mousedown", (ev) => {
+      L.DomEvent.preventDefault(ev);
+    });
+    attachAreaPopup(poly, area.id);
     poly.on("click", (ev) => {
       L.DomEvent.stopPropagation(ev);
-      editArea(area.id);
+      selectArea(area.id);
+      poly.openPopup(ev.latlng);
     });
   }
   outlineLayer.addLayer(poly);
@@ -1059,13 +1177,15 @@ function addCommittedAreaPolygon(
 function renderOutline() {
   const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
   if (!outlineLayer || !L || outlineDragging) return;
+  suppressAreaPopupClose = true;
   outlineLayer.clearLayers();
+  suppressAreaPopupClose = false;
   outlineShape = null;
   outlineFill = null;
   const editing = placeTool.value === "outline";
   const color = draftAreaColor();
 
-  const areasClickable = !editing && placeTool.value !== "draw_route";
+  const areasClickable = !editing && placeTool.value !== "draw_route" && !placingPoi();
   for (const area of areas.value) {
     if (editing && editingAreaId.value === area.id) continue;
     addCommittedAreaPolygon(L, area, areasClickable);
@@ -1470,7 +1590,7 @@ function renderDrawnRoutes() {
   const editing = placeTool.value === "draw_route";
   const color = draftRouteColor();
 
-  const routesClickable = !editing && placeTool.value !== "outline";
+  const routesClickable = !editing && placeTool.value !== "outline" && !placingPoi();
   for (const route of routes.value) {
     if (editing && editingRouteId.value === route.id) continue;
     addCommittedRoutePolyline(L, route, routesClickable);

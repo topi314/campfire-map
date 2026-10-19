@@ -74,6 +74,33 @@ export function poiPopupHtml(p: Poi, isSelected: boolean, display: PoiType = p.t
   `;
 }
 
+export function areaPopupHtml(
+  area: { name: string; color: string; ring: [number, number][] },
+  poiCount: number,
+  allInsideSelected: boolean,
+) {
+  const corners = `${area.ring.length} corners`;
+  const inside = poiCount === 1 ? "1 POI inside" : `${poiCount} POIs inside`;
+  const selectLabel = allInsideSelected && poiCount > 0 ? "Deselect POIs" : "Select POIs";
+  return `
+    <div class="poi-popup">
+      <div class="poi-popup-header">
+        <span class="poi-popup-swatch" style="background:${escapeAttr(area.color)}"></span>
+        <div class="poi-popup-titles">
+          <div class="poi-popup-name">${escapeHtml(area.name)}</div>
+          <div class="poi-popup-type">Area</div>
+        </div>
+      </div>
+      <div class="poi-popup-meta">${escapeHtml(corners)}<br>${escapeHtml(inside)}</div>
+      <button type="button" class="poi-popup-btn" data-area-edit>Edit shape</button>
+      <button type="button" class="poi-popup-btn${allInsideSelected && poiCount > 0 ? " is-selected" : ""}" data-area-select-pois${poiCount > 0 ? "" : " disabled"}>
+        ${selectLabel}
+      </button>
+      <button type="button" class="poi-popup-btn poi-popup-btn-danger" data-area-delete>Delete area</button>
+    </div>
+  `;
+}
+
 export const POI_POPUP_OPTS = {
   className: "poi-popup-wrap",
   maxWidth: 300,

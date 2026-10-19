@@ -96,7 +96,7 @@
             v-for="area in areas"
             :key="area.id"
             class="area-item"
-            :class="{ active: editingAreaId === area.id }"
+            :class="{ active: editingAreaId === area.id, selected: selectedAreaId === area.id }"
           >
             <div class="area-name-row">
               <input
@@ -469,6 +469,7 @@ const props = defineProps<{
   placeTool: PlaceTool;
   areas: MapArea[];
   editingAreaId: string | null;
+  selectedAreaId: string | null;
   routes: MapRoute[];
   editingRouteId: string | null;
   proximityWarning: string;

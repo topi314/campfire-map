@@ -996,7 +996,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-bottom: none;
 }
 
-.area-item.active {
+.area-item.active,
+.area-item.selected {
   background: #24324c;
 }
 
@@ -1108,6 +1109,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .map { height: 100%; width: 100%; background: #0d1117; }
+
+.map path.leaflet-interactive:focus,
+.map path.leaflet-interactive:focus-visible,
+.map .leaflet-interactive:focus,
+.map .leaflet-interactive:focus-visible,
+.map svg:focus,
+.map svg:focus-visible {
+  outline: none;
+}
 
 .map-search-bar {
   position: absolute;
@@ -1315,6 +1325,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--panel-2);
 }
 
+.poi-popup-swatch {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
 .poi-popup-glyph {
   width: 48px;
   height: 48px;
@@ -1376,8 +1394,21 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   cursor: pointer;
 }
 
+.poi-popup-btn + .poi-popup-btn {
+  margin-top: 8px;
+}
+
 .poi-popup-btn:hover {
   border-color: var(--accent);
+}
+
+.poi-popup-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.poi-popup-btn:disabled:hover {
+  border-color: var(--border);
 }
 
 .poi-popup-btn.is-selected {
