@@ -85,10 +85,29 @@
           </label>
         </template>
         <label class="filter">
-          <input v-model="showCells" type="checkbox" />
+          <input
+            :checked="showCells"
+            type="checkbox"
+            @change="onCellsChange(($event.target as HTMLInputElement).checked)"
+          />
           <span class="cell-toggle-icon" aria-hidden="true" />
-          S2 cells
-          <span class="counts">({{ cellLabel }})</span>
+          Cells
+          <span class="counts">({{ l14Count + l17Count }})</span>
+        </label>
+        <label class="filter filter-nested">
+          <input v-model="showL14" type="checkbox" :disabled="!showCells" />
+          Level 14
+          <span class="counts">({{ l14Count }})</span>
+        </label>
+        <label class="filter filter-nested">
+          <input v-model="showL17" type="checkbox" :disabled="!showCells" />
+          Level 17
+          <span class="counts">({{ l17Count }})</span>
+          <span v-if="showCells && emptyCells && l17Count === 0" class="counts layer-hint"> · zoom in</span>
+        </label>
+        <label class="filter filter-nested">
+          <input v-model="emptyCells" type="checkbox" :disabled="!showCells" />
+          Empty cells
         </label>
       </div>
     </div>
@@ -256,6 +275,9 @@ const { openTutorial } = useTutorial();
 const enabled = defineModel<Record<PoiType, boolean>>("enabled", { required: true });
 const baseLayerId = defineModel<string>("baseLayerId", { required: true });
 const showCells = defineModel<boolean>("showCells", { required: true });
+const showL14 = defineModel<boolean>("showL14", { required: true });
+const showL17 = defineModel<boolean>("showL17", { required: true });
+const emptyCells = defineModel<boolean>("emptyCells", { required: true });
 const exportMode = defineModel<boolean>("exportMode", { required: true });
 const showAllRoutes = defineModel<boolean>("showAllRoutes", { required: true });
 const showInactivePowerspots = defineModel<boolean>("showInactivePowerspots", { required: true });
@@ -268,16 +290,19 @@ const layerTypes = LAYER_TYPES;
 const enabledLayerCount = computed(
   () => layerTypes.filter((t) => enabled.value[t]).length + (showCells.value ? 1 : 0),
 );
+
+function onCellsChange(on: boolean) {
+  showCells.value = on;
+  if (on && !showL14.value && !showL17.value) {
+    showL14.value = true;
+    showL17.value = true;
+  }
+}
+
 const radiusOverlayDefs = RADIUS_OVERLAYS;
 const enabledRangeCount = computed(
   () => radiusOverlayDefs.filter((r) => radiusOverlays.value[r.id]).length,
 );
-const cellLabel = computed(() => {
-  const parts: string[] = [];
-  if (props.l14Count > 0) parts.push(`L14 · ${props.l14Count}`);
-  if (props.l17Count > 0) parts.push(`L17 · ${props.l17Count}`);
-  return parts.length ? parts.join(" · ") : "0";
-});
 const query = ref("");
 const collapsedGroups = ref<Set<PoiType>>(new Set());
 const collapsedSections = ref<Set<SidebarSection>>(new Set());

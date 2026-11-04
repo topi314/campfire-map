@@ -31,6 +31,17 @@ func parseMapObjects(data json.RawMessage) ([]poi.POI, error) {
 	return out, nil
 }
 
+func mergePOILists(lists ...[]poi.POI) []poi.POI {
+	byID := map[string]int{}
+	var out []poi.POI
+	for _, list := range lists {
+		for _, p := range list {
+			addPOI(p, &out, byID)
+		}
+	}
+	return out
+}
+
 func addPOI(p poi.POI, out *[]poi.POI, byID map[string]int) {
 	if p.ID == "" {
 		*out = append(*out, p)

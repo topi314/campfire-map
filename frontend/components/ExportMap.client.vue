@@ -37,6 +37,9 @@
           v-model:enabled="enabled"
           v-model:base-layer-id="baseLayerId"
           v-model:show-cells="showCells"
+          v-model:show-l14="showL14"
+          v-model:show-l17="showL17"
+          v-model:empty-cells="emptyCells"
           v-model:export-mode="exportMode"
           v-model:show-all-routes="showAllRoutes"
           v-model:show-inactive-powerspots="showInactivePowerspots"
@@ -158,6 +161,7 @@ import {
 import { POI_POPUP_OPTS, areaPopupHtml, poiPopupHtml } from "~/utils/poiPopup";
 import { attachExportGestures, attachLongPress, eventHasShift } from "~/utils/exportGesture";
 import { findNearbyPoi, pointInPolygon } from "~/utils/proximity";
+import { gymProgress, occupiesS2Cell, ringCentroid, s2Occupancy } from "~/utils/s2Cells";
 
 const config = useRuntimeConfig();
 const { settingsOpen, openSettings, closeSettings } = useSettings();
@@ -222,6 +226,9 @@ const loading = ref(false);
 const error = ref("");
 const baseLayerId = ref(storedUi.baseLayerId);
 const showCells = ref(storedUi.showCells);
+const showL14 = ref(storedUi.showL14);
+const showL17 = ref(storedUi.showL17);
+const emptyCells = ref(storedUi.emptyCells);
 const cells = ref<MapCell[]>([]);
 const l14Count = computed(() => cells.value.filter((c) => c.level === 14).length);
 const l17Count = computed(() => cells.value.filter((c) => c.level === 17).length);
@@ -247,6 +254,9 @@ function persistUiSettings() {
     enabled: { ...enabled.value },
     baseLayerId: baseLayerId.value,
     showCells: showCells.value,
+    showL14: showL14.value,
+    showL17: showL17.value,
+    emptyCells: emptyCells.value,
     exportMode: exportMode.value,
     showAllRoutes: showAllRoutes.value,
     showInactivePowerspots: showInactivePowerspots.value,
@@ -357,6 +367,9 @@ watch(
     enabled,
     baseLayerId,
     showCells,
+    showL14,
+    showL17,
+    emptyCells,
     exportMode,
     showAllRoutes,
     showInactivePowerspots,
@@ -368,6 +381,7 @@ watch(
 );
 watch(campsitePois, () => {
   syncMarkers();
+  renderCells();
 }, { deep: true });
 watch(areas, () => {
   if (placeTool.value === "outline") return;
@@ -393,7 +407,7 @@ watch(selected, () => {
 });
 watch(baseLayerId, (id) => applyBaseLayer(id));
 watch(cartoApiKey, () => applyBaseLayer(baseLayerId.value));
-watch(showCells, () => renderCells());
+watch([showCells, showL14, showL17, emptyCells, pois], () => renderCells());
 watch(showAllRoutes, (on) => {
   if (!on && focusedRouteId.value) {
     for (const id of [...expandedRoutes.value]) {
@@ -2468,23 +2482,83 @@ function attachRouteMarker(marker: Marker, p: Poi) {
   });
 }
 
+function cellOccupantPois(): Poi[] {
+  const out: Poi[] = [];
+  const seen = new Set<string>();
+  for (const p of [...pois.value, ...campsitePois.value]) {
+    if (!occupiesS2Cell(p) || seen.has(p.id)) continue;
+    seen.add(p.id);
+    out.push(p);
+  }
+  return out;
+}
+
 function renderCells() {
   const L = (window as unknown as { L?: typeof import("leaflet").default }).L;
   if (!cellsLayer || !L) return;
   cellsLayer.clearLayers();
-  if (!showCells.value) return;
+  const draw14 = showCells.value && showL14.value;
+  const draw17 = showCells.value && showL17.value;
+  if (!draw14 && !draw17) return;
+
+  const occupancy = showCells.value && emptyCells.value ? s2Occupancy(cells.value, cellOccupantPois()) : null;
   const ordered = [...cells.value].sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
   for (const cell of ordered) {
+    const l17 = cell.level === 17;
+    const l14 = cell.level === 14;
+    if (l17 && !draw17) continue;
+    if (l14 && !draw14) continue;
+    if (!l14 && !l17) continue;
     if (!cell.ring || cell.ring.length < 3) continue;
     const latlngs = cell.ring.map(([lat, lng]) => L.latLng(lat, lng));
-    const l17 = cell.level === 17;
+    const filled = !!(occupancy && l17 && occupancy.occupiedL17.has(cell.id));
+    const empty = !!(occupancy && l17 && !filled);
+    const progress = occupancy && l14 ? gymProgress(occupancy.byL14.get(cell.id) ?? 0) : null;
+    const roomForGym = !!progress && progress.remaining > 0;
+    let color = l17 ? "#9eb6ff" : "#5b8cff";
+    let fillColor = "#5b8cff";
+    let fillOpacity = l17 ? 0.03 : 0.06;
+    if (empty) {
+      color = "#3dba86";
+      fillColor = "#3dba86";
+      fillOpacity = 0.28;
+    } else if (filled) {
+      color = "#e74c3c";
+      fillColor = "#e74c3c";
+      fillOpacity = 0.28;
+    } else if (roomForGym) {
+      color = "#e0a04a";
+      fillColor = "#e0a04a";
+      fillOpacity = 0.16;
+    }
     L.polygon(latlngs, {
-      color: l17 ? "#9eb6ff" : "#5b8cff",
+      color,
       weight: l17 ? 1 : 2,
-      opacity: l17 ? 0.55 : 0.9,
-      fillColor: "#5b8cff",
-      fillOpacity: l17 ? 0.03 : 0.06,
+      opacity: empty || filled || roomForGym || !l17 ? 0.9 : 0.55,
+      fillColor,
+      fillOpacity,
       interactive: false,
+    }).addTo(cellsLayer);
+  }
+
+  if (!occupancy || !draw14) return;
+  for (const cell of cells.value) {
+    if (cell.level !== 14 || !cell.ring || cell.ring.length < 3) continue;
+    const progress = gymProgress(occupancy.byL14.get(cell.id) ?? 0);
+    if (progress.remaining === 0) continue;
+    const pips = [0, 1, 2]
+      .map((i) => `<i class="${i < progress.gyms ? "on" : ""}"></i>`)
+      .join("");
+    const [lat, lng] = ringCentroid(cell.ring);
+    L.marker([lat, lng], {
+      interactive: false,
+      keyboard: false,
+      icon: L.divIcon({
+        className: "s2-cell-label",
+        html: `<span class="s2-gym-badge"><span class="s2-gym-pips">${pips}</span><b>+${progress.remaining}</b></span>`,
+        iconSize: [88, 22],
+        iconAnchor: [44, 11],
+      }),
     }).addTo(cellsLayer);
   }
 }

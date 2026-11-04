@@ -12,6 +12,9 @@ export interface StoredUiSettings {
   enabled: Record<PoiType, boolean>;
   baseLayerId: string;
   showCells: boolean;
+  showL14: boolean;
+  showL17: boolean;
+  emptyCells: boolean;
   exportMode: boolean;
   showAllRoutes: boolean;
   showInactivePowerspots: boolean;
@@ -32,6 +35,9 @@ export function defaultUiSettings(): StoredUiSettings {
     enabled: { ...DEFAULT_ENABLED },
     baseLayerId: DEFAULT_BASE_MAP_ID,
     showCells: false,
+    showL14: true,
+    showL17: true,
+    emptyCells: false,
     exportMode: false,
     showAllRoutes: false,
     showInactivePowerspots: true,
@@ -72,10 +78,34 @@ function sanitizeSettings(raw: unknown): StoredUiSettings {
       : typeof obj.sortByLayer === "boolean"
         ? obj.sortByLayer
         : defaults.groupByLayer;
+  const hasMaster = typeof obj.showCells === "boolean";
+  const hasLevel = typeof obj.showL14 === "boolean" || typeof obj.showL17 === "boolean";
+  const showL14 =
+    typeof obj.showL14 === "boolean"
+      ? obj.showL14
+      : hasMaster
+        ? (obj.showCells as boolean)
+        : defaults.showL14;
+  const showL17 =
+    typeof obj.showL17 === "boolean"
+      ? obj.showL17
+      : hasMaster
+        ? (obj.showCells as boolean)
+        : defaults.showL17;
+  const showCells = hasMaster && hasLevel
+    ? (obj.showCells as boolean)
+    : hasLevel
+      ? showL14 || showL17
+      : hasMaster
+        ? (obj.showCells as boolean)
+        : defaults.showCells;
   return {
     enabled,
     baseLayerId: knownBaseLayerId(baseLayerId) ? baseLayerId : defaults.baseLayerId,
-    showCells: typeof obj.showCells === "boolean" ? obj.showCells : defaults.showCells,
+    showCells,
+    showL14,
+    showL17,
+    emptyCells: typeof obj.emptyCells === "boolean" ? obj.emptyCells : defaults.emptyCells,
     exportMode: typeof obj.exportMode === "boolean" ? obj.exportMode : defaults.exportMode,
     showAllRoutes: enabled.route ? showAllRoutes : false,
     showInactivePowerspots: enabled.powerspot ? showInactivePowerspots : defaults.showInactivePowerspots,

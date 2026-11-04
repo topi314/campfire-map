@@ -90,11 +90,85 @@ func (c *Client) FetchWithDropTypes(ctx context.Context, cellIDs []string, level
 	if len(dropTypes) == 0 {
 		dropTypes = DropTypesWithoutPowerspot()
 	}
+	if len(cellIDs) == 0 {
+		return nil, nil
+	}
+	var lists [][]poi.POI
+	var lastErr error
+	for _, batch := range chunkStrings(cellIDs, cellBatchSize) {
+		pois, err := c.fetchBatch(ctx, batch, level, dropTypes)
+		if err != nil {
+			lastErr = err
+			slog.WarnContext(ctx, "campfire cell batch", slog.Int("cells", len(batch)), slog.Any("err", err))
+			continue
+		}
+		lists = append(lists, pois)
+	}
+	if len(lists) == 0 {
+		return nil, lastErr
+	}
+	return mergePOILists(lists...), nil
+}
+
+// cellBatchSize keeps each Campfire platform call small. Larger requests sometimes
+// come back as GET_MAP_OBJECTS_FOR_CAMPFIRE HTTP 400 and fail the whole viewport.
+const cellBatchSize = 64
+
+func (c *Client) fetchOnce(ctx context.Context, cellIDs []string, level int, dropTypes []string) ([]poi.POI, error) {
 	raw, err := c.do(ctx, queryMapByS2Cells, c.mapByS2CellsVars(cellIDs, level, dropTypes))
 	if err != nil {
 		return nil, err
 	}
 	return parseMapObjects(raw)
+}
+
+// fetchBatch loads cells, retrying a platform 400 once and then splitting the batch.
+// A single rejected cell is skipped so the rest of the viewport still loads.
+func (c *Client) fetchBatch(ctx context.Context, cellIDs []string, level int, dropTypes []string) ([]poi.POI, error) {
+	pois, err := c.fetchOnce(ctx, cellIDs, level, dropTypes)
+	if err == nil || !isPlatformBadRequest(err) {
+		return pois, err
+	}
+	if len(cellIDs) < 2 {
+		return nil, err
+	}
+	if retried, err2 := c.fetchOnce(ctx, cellIDs, level, dropTypes); err2 == nil {
+		return retried, nil
+	}
+	mid := len(cellIDs) / 2
+	left, errL := c.fetchBatch(ctx, cellIDs[:mid], level, dropTypes)
+	right, errR := c.fetchBatch(ctx, cellIDs[mid:], level, dropTypes)
+	if errL != nil && errR != nil {
+		return nil, err
+	}
+	if errL != nil {
+		slog.WarnContext(ctx, "skipping campfire cells", slog.Int("cells", mid), slog.Any("err", errL))
+		return right, nil
+	}
+	if errR != nil {
+		slog.WarnContext(ctx, "skipping campfire cells", slog.Int("cells", len(cellIDs)-mid), slog.Any("err", errR))
+		return left, nil
+	}
+	return mergePOILists(left, right), nil
+}
+
+func isPlatformBadRequest(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "HTTP Mapping: 400")
+}
+
+func chunkStrings(ids []string, size int) [][]string {
+	if size < 1 {
+		size = 1
+	}
+	out := make([][]string, 0, (len(ids)+size-1)/size)
+	for i := 0; i < len(ids); i += size {
+		j := i + size
+		if j > len(ids) {
+			j = len(ids)
+		}
+		out = append(out, ids[i:j])
+	}
+	return out
 }
 
 func (c *Client) mapByS2CellsVars(cellIDs []string, level int, dropTypes []string) map[string]any {
