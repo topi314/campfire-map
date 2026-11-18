@@ -58,7 +58,25 @@ const config = useRuntimeConfig();
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 450;
 
-const placeholder = `Search — e.g. ${DEFAULT_MAP_LABEL}`;
+const narrow = ref(false);
+const placeholder = computed(() =>
+  narrow.value ? "Search for a place" : `Search — e.g. ${DEFAULT_MAP_LABEL}`,
+);
+
+let narrowMedia: MediaQueryList | null = null;
+function syncNarrow() {
+  narrow.value = !!narrowMedia?.matches;
+}
+
+onMounted(() => {
+  narrowMedia = window.matchMedia("(max-width: 860px)");
+  syncNarrow();
+  narrowMedia.addEventListener("change", syncNarrow);
+});
+
+onBeforeUnmount(() => {
+  narrowMedia?.removeEventListener("change", syncNarrow);
+});
 const query = ref("");
 const searching = ref(false);
 const error = ref("");

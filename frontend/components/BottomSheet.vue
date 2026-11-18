@@ -6,6 +6,7 @@
     role="complementary"
   >
     <div
+      ref="handleRef"
       class="bottom-sheet-handle-wrap"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
@@ -25,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import { useBottomSheet, type SheetSnap } from "~/composables/useBottomSheet";
+import { noteSheetViewport, setPeekChromePx, useBottomSheet, type SheetSnap } from "~/composables/useBottomSheet";
 
 const emit = defineEmits<{
   snap: [snap: SheetSnap];
@@ -48,16 +49,38 @@ const snapLabel = computed(() => {
   return "▾";
 });
 
+const handleRef = ref<HTMLElement | null>(null);
+
 function updateViewport() {
   isMobileSheet.value = window.matchMedia("(max-width: 860px)").matches;
+  noteSheetViewport(window.innerHeight);
+  measureChrome();
+  syncSheetOffset();
 }
+
+function measureChrome() {
+  const handle = handleRef.value;
+  const tabs = handle?.parentElement?.querySelector(".sheet-tabs");
+  if (!handle || !(tabs instanceof HTMLElement)) return;
+  const border = 1;
+  setPeekChromePx(handle.offsetHeight + tabs.offsetHeight + border);
+}
+
+function syncSheetOffset() {
+  const h = isMobileSheet.value ? heightPx.value : 0;
+  document.documentElement.style.setProperty("--sheet-h", `${h}px`);
+}
+
+watch(heightPx, syncSheetOffset);
 
 onMounted(() => {
   updateViewport();
   window.addEventListener("resize", updateViewport);
+  nextTick(measureChrome);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", updateViewport);
+  document.documentElement.style.removeProperty("--sheet-h");
 });
 </script>
