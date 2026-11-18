@@ -108,5 +108,5 @@ export const POI_POPUP_OPTS = {
   autoPan: true,
   autoPanPadding: [48, 48] as [number, number],
   closeButton: true,
-  closeOnClick: false,
+  closeOnClick: true,
 };

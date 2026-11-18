@@ -1322,7 +1322,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .poi-popup-wrap .leaflet-popup-content {
-  margin: 12px 28px 12px 14px;
+  margin: 12px 14px;
   line-height: 1.4;
 }
 
@@ -1333,25 +1333,27 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .poi-popup-wrap a.leaflet-popup-close-button {
-  top: 6px;
-  right: 6px;
-  width: 28px;
-  height: 28px;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--muted);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
   line-height: 1;
-  border-radius: 8px;
+  background: transparent;
+  text-decoration: none;
   z-index: 2;
 }
 
-.poi-popup-wrap a.leaflet-popup-close-button:hover {
+.poi-popup-wrap a.leaflet-popup-close-button:hover,
+.poi-popup-wrap a.leaflet-popup-close-button:focus {
   color: var(--text);
-  background: var(--panel-2);
+  background: transparent;
 }
 
 .poi-popup-header {
@@ -1406,6 +1408,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .poi-popup-titles {
   min-width: 0;
+  padding-right: 18px;
 }
 
 .poi-popup-name {
@@ -1430,6 +1433,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-top: 12px;
   width: 100%;
   padding: 8px 12px;
+  text-align: center;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--panel-2);

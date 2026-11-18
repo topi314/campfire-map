@@ -353,6 +353,7 @@ onMounted(async () => {
     selectedAreaId.value = null;
     if (placeTool.value !== "outline") applyAreaHighlight();
   });
+  document.addEventListener("pointerdown", onPointerDownOutsidePopup);
 
   if (enabled.value.powerspot && !canLoadPowerspots()) {
     enabled.value = { ...enabled.value, powerspot: false };
@@ -362,7 +363,17 @@ onMounted(async () => {
   maybeShowTutorial();
 });
 
+function onPointerDownOutsidePopup(ev: PointerEvent) {
+  const t = ev.target;
+  if (!(t instanceof Element)) return;
+  if (t.closest(".leaflet-popup, .leaflet-marker-icon")) return;
+  for (const btn of document.querySelectorAll<HTMLElement>(".leaflet-popup-close-button")) {
+    btn.click();
+  }
+}
+
 onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", onPointerDownOutsidePopup);
   stopPlaceTool();
   if (campsiteNoteTimer) clearTimeout(campsiteNoteTimer);
   map?.remove();
