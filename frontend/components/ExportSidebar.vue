@@ -89,7 +89,12 @@
           </button>
         </div>
         <p v-if="campsiteEdit" class="counts" style="margin-top: 6px">
-          Map locked — only selected and planned POIs are shown; no new fetches.
+          Map locked — no new fetches.
+          {{
+            spacingPeersOn
+              ? "Current POIs stay visible for min spacing."
+              : "Only selected and planned POIs are shown."
+          }}
         </p>
         <div v-if="areas.length" class="area-list">
           <div
@@ -297,7 +302,7 @@
           class="counts"
           style="margin-top: 6px"
         >
-          Tap the map to place. Too-close spots are marked in red (under 30 m). Turn on Min POI spacing in Ranges to show rings.
+          Tap the map to place. Too-close spots are marked in red (under {{ minSpacingMeters }} m). Turn on a min spacing range to show the rings.
         </p>
         <p v-if="proximityWarning" class="export-warning" style="margin-top: 8px">{{ proximityWarning }}</p>
         <p v-if="campsiteNote" class="export-note" style="margin-top: 8px">{{ campsiteNote }}</p>
@@ -476,6 +481,8 @@ const props = defineProps<{
   editingRouteId: string | null;
   proximityWarning: string;
   campsiteNote: string;
+  minSpacingMeters: number;
+  spacingPeersOn: boolean;
 }>();
 
 const emit = defineEmits<{

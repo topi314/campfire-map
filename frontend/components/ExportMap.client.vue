@@ -72,6 +72,8 @@
           :routes="routes"
           :editing-route-id="editingRouteId"
           :proximity-warning="proximityWarning"
+          :min-spacing-meters="minSpacingMeters"
+          :spacing-peers-on="spacingPeersOn"
           :campsite-note="campsiteNote"
           @toggle="togglePoi"
           @enter-campsite="enterCampsiteEdit"
@@ -109,7 +111,7 @@ import {
   CAMPSITE_CA_SOFT_LIMIT,
   DEFAULT_MAP_ZOOM,
   RADIUS_OVERLAYS,
-  WAYFARER_MIN_SEPARATION_M,
+  activeMinSpacingMeters,
   anyRadiusOverlayEnabled,
   radiusOverlayApplies,
   type RadiusOverlayDef,
@@ -196,6 +198,10 @@ const placeTool = ref<PlaceTool>(null);
 const proximityWarning = ref("");
 const campsiteNote = ref("");
 const radiusOverlays = ref<RadiusOverlayState>({ ...storedUi.radiusOverlays });
+const minSpacingMeters = computed(() => activeMinSpacingMeters(radiusOverlays.value));
+const spacingPeersOn = computed(() =>
+  RADIUS_OVERLAYS.some((d) => d.spacing && radiusOverlays.value[d.id]),
+);
 const areaDraft = ref<[number, number][]>([]);
 /** When set, draft edits that area; null means drawing a new area. */
 const editingAreaId = ref<string | null>(null);
@@ -217,7 +223,7 @@ const exportPois = computed(() => {
 });
 
 const displayPois = computed(() => {
-  if (!campsiteEdit.value) return pois.value;
+  if (!campsiteEdit.value || spacingPeersOn.value) return pois.value;
   return [...exportPois.value, ...campsitePois.value];
 });
 
@@ -399,7 +405,8 @@ watch(showInactivePowerspots, () => {
   syncMarkers();
 });
 watch(radiusOverlays, () => {
-  syncProximityRadii();
+  refreshCampsiteConflicts();
+  syncMarkers();
 }, { deep: true });
 watch(selected, () => {
   syncMarkers();
@@ -974,29 +981,36 @@ function newCampsiteId() {
   return `camp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-/** Existing selected export POIs + other planned campsite POIs (not the whole viewport cache). */
-function proximityPeers(excludeId?: string): Poi[] {
-  const byId = new Map<string, Poi>();
-  for (const p of exportPois.value) {
-    if (p.type === "route") continue;
-    byId.set(p.id, p);
+/** Enabled min-spacing rules. Campsite spacing stays on as the default when neither ring is enabled. */
+function spacingRules(): RadiusOverlayDef[] {
+  const active = RADIUS_OVERLAYS.filter((d) => d.spacing && radiusOverlays.value[d.id]);
+  if (active.length) return active;
+  return RADIUS_OVERLAYS.filter((d) => d.spacing && d.id === "wayfarer");
+}
+
+function spacingConflict(lat: number, lng: number, excludeId?: string) {
+  let best: { poi: Poi; meters: number; limit: number } | null = null;
+  for (const def of spacingRules()) {
+    const peers = [...radiusSourceFor(def).values()].filter((p) => p.id !== excludeId);
+    const near = findNearbyPoi(lat, lng, peers, excludeId, def.meters);
+    if (!near) continue;
+    if (!best || near.meters < best.meters) best = { ...near, limit: def.meters };
   }
-  for (const p of campsitePois.value) {
-    byId.set(p.id, p);
-  }
-  return [...byId.values()].filter((p) => p.id !== excludeId);
+  return best;
+}
+
+function spacingWarning(near: { poi: Poi; meters: number; limit: number }) {
+  return `Within ${near.limit}m of “${near.poi.name}” (${Math.round(near.meters)}m)`;
 }
 
 function refreshCampsiteConflicts() {
   const next = new Set<string>();
   let warn = "";
   for (const p of campsitePois.value) {
-    const near = findNearbyPoi(p.lat, p.lng, proximityPeers(p.id));
+    const near = spacingConflict(p.lat, p.lng, p.id);
     if (!near) continue;
     next.add(p.id);
-    if (!warn) {
-      warn = `Within ${WAYFARER_MIN_SEPARATION_M}m of “${near.poi.name}” (${Math.round(near.meters)}m)`;
-    }
+    if (!warn) warn = spacingWarning(near);
   }
   campsiteConflicts.value = next;
   proximityWarning.value = warn;
@@ -1798,13 +1812,6 @@ function clearWarnCircle() {
   }
 }
 
-function selectedAndCampsitePois(): Map<string, Poi> {
-  const source = new Map<string, Poi>();
-  for (const p of exportPois.value) source.set(p.id, p);
-  for (const p of campsitePois.value) source.set(p.id, p);
-  return source;
-}
-
 function visibleMapPois(desired?: Map<string, Poi>): Map<string, Poi> {
   if (desired) return desired;
   const source = new Map<string, Poi>();
@@ -1819,9 +1826,8 @@ function visibleMapPois(desired?: Map<string, Poi>): Map<string, Poi> {
   return source;
 }
 
-/** Min POI spacing uses selection; lure/interaction use POIs currently on the map. */
-function radiusSourceFor(def: RadiusOverlayDef, desired?: Map<string, Poi>): Map<string, Poi> {
-  if (def.id === "wayfarer") return selectedAndCampsitePois();
+/** Every range, including campsite spacing, uses the POIs currently on the map. */
+function radiusSourceFor(_def: RadiusOverlayDef, desired?: Map<string, Poi>): Map<string, Poi> {
   return visibleMapPois(desired);
 }
 
@@ -2581,7 +2587,7 @@ function syncMarkers() {
   const L = (window as unknown as { L: typeof import("leaflet").default }).L;
   if (!cluster || !campsiteLayer || !routesLayer || !L) return;
   const desired = new Map<string, Poi>();
-  if (campsiteEdit.value) {
+  if (campsiteEdit.value && !spacingPeersOn.value) {
     for (const p of exportPois.value) {
       if (!isLayerEnabled(p)) continue;
       desired.set(p.id, p);
@@ -2656,11 +2662,11 @@ function syncMarkers() {
       });
       marker.on("drag", () => {
         const dragLl = marker.getLatLng();
-        const near = findNearbyPoi(dragLl.lat, dragLl.lng, proximityPeers(p.id));
+        const near = spacingConflict(dragLl.lat, dragLl.lng, p.id);
         applyCampsiteDragStyle(marker, !!near);
         if (near) {
           showWarnCircle(dragLl.lat, dragLl.lng);
-          proximityWarning.value = `Within ${WAYFARER_MIN_SEPARATION_M}m of “${near.poi.name}” (${Math.round(near.meters)}m)`;
+          proximityWarning.value = spacingWarning(near);
         } else {
           clearWarnCircle();
         }
