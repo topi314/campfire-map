@@ -27,4 +27,6 @@ type ExportOptions struct {
 	Routes []ExportRoute
 	// Outline is a legacy single ring; used when Areas is empty.
 	Outline [][2]float64
+	// CSVColumns lists CSV fields to write, in this order. Empty means all fields.
+	CSVColumns []string
 }

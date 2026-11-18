@@ -1,5 +1,9 @@
 import {
   DEFAULT_EXPORT_SETTINGS,
+  normalizeCsvColumns,
+  normalizeCsvScope,
+  normalizeCsvTypes,
+  normalizeExportFormat,
   normalizeExportLayers,
   type ExportLayer,
   type ExportSettings,
@@ -169,7 +173,7 @@ export function parseCampfirePlan(raw: unknown): CampfirePlan {
   const layers = normalizeExportLayers(o.layers as ExportLayer[] | undefined);
   const saved = (o.exportSettings || {}) as Partial<ExportSettings>;
   const exportSettings: CampfirePlan["exportSettings"] = {
-    format: saved.format === "kml" ? "kml" : "kmz",
+    format: normalizeExportFormat(saved.format),
     includeTypes: {
       ...DEFAULT_EXPORT_SETTINGS.includeTypes,
       ...saved.includeTypes,
@@ -182,6 +186,17 @@ export function parseCampfirePlan(raw: unknown): CampfirePlan {
       typeof saved.includeInactivePowerspots === "boolean"
         ? saved.includeInactivePowerspots
         : DEFAULT_EXPORT_SETTINGS.includeInactivePowerspots,
+    csvColumns: normalizeCsvColumns(saved.csvColumns),
+    csvTypes: normalizeCsvTypes(saved.csvTypes),
+    csvScope: normalizeCsvScope(saved.csvScope),
+    csvIncludeInactivePowerspots:
+      typeof saved.csvIncludeInactivePowerspots === "boolean"
+        ? saved.csvIncludeInactivePowerspots
+        : DEFAULT_EXPORT_SETTINGS.csvIncludeInactivePowerspots,
+    csvIncludeRoutePaths:
+      typeof saved.csvIncludeRoutePaths === "boolean"
+        ? saved.csvIncludeRoutePaths
+        : DEFAULT_EXPORT_SETTINGS.csvIncludeRoutePaths,
   };
   return {
     version: PLAN_FILE_VERSION,

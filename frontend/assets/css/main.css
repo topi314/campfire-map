@@ -1506,6 +1506,33 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-top: 1px solid var(--border);
 }
 
+.csv-section-label {
+  margin-top: 12px;
+}
+
+.csv-column-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.csv-column-row .filter {
+  flex: 1;
+  min-width: 0;
+  margin: 2px 0;
+}
+
+.csv-column-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.csv-column-actions button {
+  min-width: 32px;
+  padding: 4px 8px;
+}
+
 .export-filename-row {
   display: flex;
   align-items: center;

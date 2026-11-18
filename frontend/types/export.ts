@@ -35,14 +35,132 @@ export interface ExportLayer {
   types: LayerTypeKey[];
 }
 
+export type ExportFormat = "kmz" | "kml" | "csv";
+
+export function normalizeExportFormat(format: string | undefined | null): ExportFormat {
+  if (format === "kml" || format === "csv") return format;
+  return "kmz";
+}
+
 export interface ExportSettings {
   mapName: string;
   fileName: string;
-  format: "kmz" | "kml";
+  format: ExportFormat;
   includeTypes: Record<PoiType, boolean>;
   includeRoutePaths: boolean;
   includeInactivePowerspots: boolean;
   layers: ExportLayer[];
+  csvColumns: CsvColumnChoice[];
+  csvTypes: Record<PoiType, boolean>;
+  csvScope: CsvScope;
+  csvIncludeInactivePowerspots: boolean;
+  csvIncludeRoutePaths: boolean;
+}
+
+/** Which POIs a CSV includes, independent of the KMZ type checkboxes. */
+export type CsvScope = "all" | "planned" | "existing";
+
+export function defaultCsvTypes(): Record<PoiType, boolean> {
+  return {
+    gym: true,
+    super_mega_gym: true,
+    pokestop: true,
+    powerspot: true,
+    route: true,
+  };
+}
+
+export function normalizeCsvTypes(raw: unknown): Record<PoiType, boolean> {
+  const out = defaultCsvTypes();
+  if (!raw || typeof raw !== "object") return out;
+  const obj = raw as Record<string, unknown>;
+  for (const type of Object.keys(out) as PoiType[]) {
+    if (typeof obj[type] === "boolean") out[type] = obj[type];
+  }
+  return out;
+}
+
+export function normalizeCsvScope(raw: unknown): CsvScope {
+  if (raw === "planned" || raw === "existing") return raw;
+  return "all";
+}
+
+export const CSV_COLUMNS = [
+  { id: "name", label: "name" },
+  { id: "type", label: "poi type" },
+  { id: "latitude", label: "latitude" },
+  { id: "longitude", label: "longitude" },
+  { id: "layer", label: "layer" },
+  { id: "id", label: "id" },
+  { id: "status", label: "status" },
+  { id: "source", label: "source" },
+] as const;
+
+export type CsvColumnId = (typeof CSV_COLUMNS)[number]["id"];
+
+export interface CsvColumnChoice {
+  id: CsvColumnId;
+  enabled: boolean;
+}
+
+export function csvColumnLabel(id: CsvColumnId): string {
+  return CSV_COLUMNS.find((col) => col.id === id)?.label ?? id;
+}
+
+export function defaultCsvColumns(): CsvColumnChoice[] {
+  return CSV_COLUMNS.map((col) => ({ id: col.id, enabled: true }));
+}
+
+function isCsvColumnId(id: string): id is CsvColumnId {
+  return CSV_COLUMNS.some((col) => col.id === id);
+}
+
+/** Accepts the ordered list, or an older map of id → included. Unknown ids are dropped. */
+export function normalizeCsvColumns(raw: unknown): CsvColumnChoice[] {
+  const enabled = new Map<CsvColumnId, boolean>(defaultCsvColumns().map((col) => [col.id, col.enabled]));
+  const order: CsvColumnId[] = [];
+  const seen = new Set<CsvColumnId>();
+
+  const take = (id: string, on: boolean) => {
+    if (!isCsvColumnId(id) || seen.has(id)) return;
+    seen.add(id);
+    enabled.set(id, on);
+    order.push(id);
+  };
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item === "string") take(item, true);
+      else if (item && typeof item === "object") {
+        const obj = item as { id?: unknown; enabled?: unknown };
+        if (typeof obj.id === "string") take(obj.id, obj.enabled !== false);
+      }
+    }
+  } else if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    for (const col of CSV_COLUMNS) {
+      if (typeof obj[col.id] === "boolean") enabled.set(col.id, obj[col.id] as boolean);
+    }
+  }
+
+  for (const col of CSV_COLUMNS) {
+    if (!seen.has(col.id)) order.push(col.id);
+  }
+  return order.map((id) => ({ id, enabled: enabled.get(id) !== false }));
+}
+
+export function selectedCsvColumns(columns: CsvColumnChoice[]): CsvColumnId[] {
+  return columns.filter((col) => col.enabled).map((col) => col.id);
+}
+
+export function moveCsvColumn(columns: CsvColumnChoice[], index: number, delta: number): CsvColumnChoice[] {
+  const next = index + delta;
+  if (next < 0 || next >= columns.length) return columns;
+  const copy = columns.slice();
+  const [item] = copy.splice(index, 1);
+  if (!item) return columns;
+  copy.splice(next, 0, item);
+  return copy;
 }
 
 export const EXISTING_LAYER_TYPES: LayerTypeKey[] = [
@@ -177,6 +295,11 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   includeRoutePaths: true,
   includeInactivePowerspots: true,
   layers: defaultExportLayers(),
+  csvColumns: defaultCsvColumns(),
+  csvTypes: defaultCsvTypes(),
+  csvScope: "all",
+  csvIncludeInactivePowerspots: true,
+  csvIncludeRoutePaths: true,
 };
 
 export function sanitizeFileName(name: string) {
@@ -283,6 +406,21 @@ export function layerTypeKeyForPoi(p: Poi): LayerTypeKey {
     if (p.type === "powerspot") return "campsite_powerspot";
   }
   return p.type;
+}
+
+export function filterPoisForCsv(pois: Poi[], settings: ExportSettings): Poi[] {
+  const scoped = pois.filter((p) => {
+    const planned = p.source === "campsite";
+    if (settings.csvScope === "planned") return planned;
+    if (settings.csvScope === "existing") return !planned;
+    return true;
+  });
+  return filterPoisForExport(scoped, {
+    ...settings,
+    includeTypes: { ...settings.csvTypes, route: false },
+    includeInactivePowerspots: settings.csvIncludeInactivePowerspots,
+    includeRoutePaths: false,
+  });
 }
 
 export function filterPoisForExport(pois: Poi[], settings: ExportSettings): Poi[] {

@@ -435,9 +435,11 @@
 <script setup lang="ts">
 import {
   DEFAULT_EXPORT_SETTINGS,
+  filterPoisForCsv,
   filterPoisForExport,
   normalizeExportLayers,
   sanitizeFileName,
+  selectedCsvColumns,
   type ExportSettings,
   type PlaceTool,
 } from "~/types/export";
@@ -715,7 +717,10 @@ async function onImportFile(ev: Event) {
 }
 
 async function exportBlob(settings: ExportSettings) {
-  const pois = filterPoisForExport(allExportPois.value, settings);
+  const pois =
+    settings.format === "csv"
+      ? filterPoisForCsv(allExportPois.value, settings)
+      : filterPoisForExport(allExportPois.value, settings);
   const res = await fetch(`${config.public.apiBase}/api/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -726,6 +731,7 @@ async function exportBlob(settings: ExportSettings) {
       areas: exportableAreas.value.map(({ name, color, ring }) => ({ name, color, ring })),
       routes: exportableRoutes.value.map(({ name, color, path }) => ({ name, color, path })),
       layers: settings.layers.map(({ name, types }) => ({ name, types })),
+      columns: settings.format === "csv" ? selectedCsvColumns(settings.csvColumns) : undefined,
     }),
   });
   if (!res.ok) {

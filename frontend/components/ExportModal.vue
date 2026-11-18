@@ -18,9 +18,14 @@
         {{ exportCount }} POI{{ exportCount === 1 ? "" : "s" }} in the export list
         <span v-if="areaCount > 0"> · {{ areaCount }} area{{ areaCount === 1 ? "" : "s" }}</span>
         <span v-if="routeCount > 0"> · {{ routeCount }} campsite route{{ routeCount === 1 ? "" : "s" }}</span>.
-        Import the file in
-        <a href="https://www.google.com/maps/d/" target="_blank" rel="noreferrer">Google My Maps</a>
-        or open it in Google Earth.
+        <template v-if="draft.format === 'csv'">
+          Download a spreadsheet of those POIs. Routes, areas, campsite routes, and range rings stay in KMZ and KML.
+        </template>
+        <template v-else>
+          Import the file in
+          <a href="https://www.google.com/maps/d/" target="_blank" rel="noreferrer">Google My Maps</a>
+          or open it in Google Earth.
+        </template>
       </p>
 
       <label class="token-label" for="export-map-name">Map name</label>
@@ -58,9 +63,69 @@
           KML
           <span class="counts">(single file · icons inlined)</span>
         </label>
+        <label class="filter">
+          <input v-model="draft.format" type="radio" value="csv" />
+          CSV
+          <span class="counts">(spreadsheet · POIs only)</span>
+        </label>
       </div>
 
-      <div class="export-settings">
+      <div v-if="draft.format === 'csv'" class="export-settings">
+        <div class="token-label">POI types</div>
+        <template v-for="item in typeOptions" :key="item.type">
+          <template v-if="item.type !== 'route'">
+            <label class="filter">
+              <input v-model="draft.csvTypes[item.type]" type="checkbox" />
+              <TypeIcon :type="item.type" />
+              {{ item.label }}
+              <span class="counts">({{ csvTypeCounts[item.type] || 0 }})</span>
+            </label>
+            <label v-if="item.type === 'powerspot'" class="filter filter-nested">
+              <input
+                v-model="draft.csvIncludeInactivePowerspots"
+                type="checkbox"
+                :disabled="!draft.csvTypes.powerspot"
+              />
+              Inactive powerspots
+            </label>
+          </template>
+        </template>
+
+        <div class="token-label csv-section-label">Include</div>
+        <label class="filter">
+          <input v-model="draft.csvScope" type="radio" value="all" />
+          All POIs
+        </label>
+        <label class="filter">
+          <input v-model="draft.csvScope" type="radio" value="planned" />
+          Planned only
+        </label>
+        <label class="filter">
+          <input v-model="draft.csvScope" type="radio" value="existing" />
+          Existing only
+        </label>
+
+        <div class="token-label csv-section-label">Columns</div>
+        <div v-for="(col, index) in draft.csvColumns" :key="col.id" class="csv-column-row">
+          <label class="filter">
+            <input v-model="col.enabled" type="checkbox" />
+            {{ csvColumnLabel(col.id) }}
+          </label>
+          <div class="csv-column-actions">
+            <button type="button" :disabled="index === 0" title="Move up" @click="moveColumn(index, -1)">↑</button>
+            <button
+              type="button"
+              :disabled="index === draft.csvColumns.length - 1"
+              title="Move down"
+              @click="moveColumn(index, 1)"
+            >
+              ↓
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="draft.format !== 'csv'" class="export-settings">
         <div class="token-label">Include types</div>
         <template v-for="item in typeOptions" :key="item.type">
           <label class="filter">
@@ -89,9 +154,13 @@
         </template>
       </div>
 
-      <LayerEditor v-model:layers="draft.layers" :include-types="draft.includeTypes" />
+      <LayerEditor
+        v-if="draft.format !== 'csv'"
+        v-model:layers="draft.layers"
+        :include-types="draft.includeTypes"
+      />
 
-      <div class="export-settings export-icons-section">
+      <div v-if="draft.format !== 'csv'" class="export-settings export-icons-section">
         <div class="token-label">My Maps icons</div>
         <p class="counts export-icons-hint">
           Download PNG icons matching this map to upload as custom layer icons in My Maps.
@@ -107,8 +176,12 @@
         </button>
       </div>
 
-      <p v-if="filteredCount === 0 && areaCount === 0 && routeCount === 0" class="export-warning">No POIs match the current export settings.</p>
-      <p v-else-if="myMapsWarning" class="export-warning">{{ myMapsWarning }}</p>
+      <p v-if="draft.format === 'csv' && !csvColumnCount" class="export-warning">Choose at least one column.</p>
+      <p v-else-if="nothingToExport" class="export-warning">No POIs match the current export settings.</p>
+      <p v-else-if="draft.format !== 'csv' && myMapsWarning" class="export-warning">{{ myMapsWarning }}</p>
+      <p v-else-if="draft.format === 'csv'" class="counts export-summary">
+        {{ filteredCount }} POI{{ filteredCount === 1 ? "" : "s" }} will be exported.
+      </p>
       <p v-else class="counts export-summary">
         {{ filteredCount }} POI{{ filteredCount === 1 ? "" : "s" }}
         <span v-if="areaCount > 0"> + {{ areaCount }} area{{ areaCount === 1 ? "" : "s" }}</span>
@@ -120,7 +193,7 @@
         <button
           type="submit"
           class="primary btn-with-icon"
-          :disabled="exporting || (filteredCount === 0 && areaCount === 0 && routeCount === 0)"
+          :disabled="exporting || nothingToExport || (draft.format === 'csv' && !csvColumnCount)"
         >
           <UiIcon name="download" />
           {{ exporting ? "Exporting…" : `Download ${draft.format.toUpperCase()}` }}
@@ -138,11 +211,21 @@
 import { downloadMyMapsIconsZip } from "~/utils/myMapsIcons";
 import {
   DEFAULT_EXPORT_SETTINGS,
+  csvColumnLabel,
+  defaultCsvColumns,
+  defaultCsvTypes,
   estimateMyMapsFolders,
   exportTypeLabels,
+  filterPoisForCsv,
   filterPoisForExport,
+  normalizeCsvColumns,
+  normalizeCsvScope,
+  normalizeCsvTypes,
+  normalizeExportFormat,
+  moveCsvColumn,
   normalizeExportLayers,
   sanitizeFileName,
+  selectedCsvColumns,
   type ExportSettings,
 } from "~/types/export";
 import { isGymPoi, isSuperMegaPoi, type Poi } from "~/types/poi";
@@ -166,41 +249,63 @@ const draft = ref<ExportSettings>({
   ...DEFAULT_EXPORT_SETTINGS,
   includeTypes: { ...DEFAULT_EXPORT_SETTINGS.includeTypes },
   layers: normalizeExportLayers(DEFAULT_EXPORT_SETTINGS.layers),
+  csvColumns: defaultCsvColumns(),
+  csvTypes: defaultCsvTypes(),
 });
 const downloadingIcons = ref(false);
 const typeOptions = exportTypeLabels();
 
-const typeCounts = computed(() => {
+function countTypes(pois: Poi[]) {
   const c: Record<string, number> = {};
-  for (const p of props.exportPois) {
+  for (const p of pois) {
     if (p.source === "campsite") {
-      const key =
-        p.type === "gym" || p.type === "super_mega_gym"
-          ? "gym"
-          : p.type;
+      const key = p.type === "gym" || p.type === "super_mega_gym" ? "gym" : p.type;
       c[key] = (c[key] || 0) + 1;
       continue;
     }
     if (isGymPoi(p)) {
       c.gym = (c.gym || 0) + 1;
-      if (isSuperMegaPoi(p)) {
-        c.super_mega_gym = (c.super_mega_gym || 0) + 1;
-      }
+      if (isSuperMegaPoi(p)) c.super_mega_gym = (c.super_mega_gym || 0) + 1;
       continue;
     }
     c[p.type] = (c[p.type] || 0) + 1;
   }
   return c;
-});
+}
+
+const typeCounts = computed(() => countTypes(props.exportPois));
+
+const csvScopedPois = computed(() =>
+  props.exportPois.filter((p) => {
+    const planned = p.source === "campsite";
+    if (draft.value.csvScope === "planned") return planned;
+    if (draft.value.csvScope === "existing") return !planned;
+    return true;
+  }),
+);
+
+const csvTypeCounts = computed(() => countTypes(csvScopedPois.value));
 
 const exportCount = computed(() => props.exportPois.length);
 const areaCount = computed(() => props.areaCount);
 const routeCount = computed(() => props.routeCount);
-const filteredPois = computed(() => filterPoisForExport(props.exportPois, draft.value));
+const filteredPois = computed(() =>
+  draft.value.format === "csv"
+    ? filterPoisForCsv(props.exportPois, draft.value)
+    : filterPoisForExport(props.exportPois, draft.value),
+);
 const filteredCount = computed(() => filteredPois.value.length);
 
 const folderEstimate = computed(() =>
   estimateMyMapsFolders(filteredPois.value, draft.value.layers, areaCount.value, routeCount.value),
+);
+
+const csvColumnCount = computed(() => selectedCsvColumns(draft.value.csvColumns).length);
+
+const nothingToExport = computed(() =>
+  draft.value.format === "csv"
+    ? filteredCount.value === 0
+    : filteredCount.value === 0 && areaCount.value === 0 && routeCount.value === 0,
 );
 
 const myMapsWarning = computed(() => {
@@ -219,7 +324,7 @@ watch(
     draft.value = {
       ...DEFAULT_EXPORT_SETTINGS,
       ...saved,
-      format: saved?.format === "kml" || saved?.format === "kmz" ? saved.format : DEFAULT_EXPORT_SETTINGS.format,
+      format: normalizeExportFormat(saved?.format),
       includeTypes: {
         ...DEFAULT_EXPORT_SETTINGS.includeTypes,
         ...saved?.includeTypes,
@@ -229,6 +334,17 @@ watch(
           ? saved.includeInactivePowerspots
           : DEFAULT_EXPORT_SETTINGS.includeInactivePowerspots,
       layers: normalizeExportLayers(saved?.layers ?? DEFAULT_EXPORT_SETTINGS.layers),
+      csvColumns: normalizeCsvColumns(saved?.csvColumns),
+      csvTypes: normalizeCsvTypes(saved?.csvTypes),
+      csvScope: normalizeCsvScope(saved?.csvScope),
+      csvIncludeInactivePowerspots:
+        typeof saved?.csvIncludeInactivePowerspots === "boolean"
+          ? saved.csvIncludeInactivePowerspots
+          : DEFAULT_EXPORT_SETTINGS.csvIncludeInactivePowerspots,
+      csvIncludeRoutePaths:
+        typeof saved?.csvIncludeRoutePaths === "boolean"
+          ? saved.csvIncludeRoutePaths
+          : DEFAULT_EXPORT_SETTINGS.csvIncludeRoutePaths,
     };
     if (!draft.value.mapName.trim()) {
       draft.value.mapName = DEFAULT_EXPORT_SETTINGS.mapName;
@@ -238,6 +354,10 @@ watch(
     }
   },
 );
+
+function moveColumn(index: number, delta: number) {
+  draft.value.csvColumns = moveCsvColumn(draft.value.csvColumns, index, delta);
+}
 
 function loadSavedSettings(): Partial<ExportSettings> | null {
   if (!import.meta.client) return null;
@@ -266,9 +386,12 @@ function submit() {
     ...draft.value,
     mapName,
     fileName,
-    format: draft.value.format === "kml" ? "kml" : "kmz",
+    format: normalizeExportFormat(draft.value.format),
     includeTypes: { ...draft.value.includeTypes },
     layers: normalizeExportLayers(draft.value.layers),
+    csvColumns: normalizeCsvColumns(draft.value.csvColumns),
+    csvTypes: normalizeCsvTypes(draft.value.csvTypes),
+    csvScope: normalizeCsvScope(draft.value.csvScope),
   };
   saveSettings(settings);
   emit("export", settings);

@@ -221,6 +221,7 @@ type exportReq struct {
 	Routes  []kml.ExportRoute `json:"routes,omitempty"`
 	Outline [][2]float64      `json:"outline,omitempty"` // legacy single ring
 	Layers  []kml.ExportLayer `json:"layers,omitempty"`
+	Columns []string          `json:"columns,omitempty"`
 }
 
 func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +261,7 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "kmz"
 	}
-	opts := kml.ExportOptions{Layers: req.Layers, Areas: areas, Routes: req.Routes, Outline: req.Outline}
+	opts := kml.ExportOptions{Layers: req.Layers, Areas: areas, Routes: req.Routes, Outline: req.Outline, CSVColumns: req.Columns}
 	var (
 		data     []byte
 		err      error
@@ -276,8 +277,16 @@ func (s *Server) exportKMZ(w http.ResponseWriter, r *http.Request) {
 		data, err = kml.BuildKMZ(req.Name, req.POIs, opts)
 		filename = "pogo-export.kmz"
 		ctype = "application/vnd.google-earth.kmz"
+	case "csv":
+		if len(req.POIs) == 0 {
+			http.Error(w, "no pois selected", http.StatusBadRequest)
+			return
+		}
+		data, err = kml.BuildCSV(req.POIs, opts)
+		filename = "pogo-export.csv"
+		ctype = "text/csv; charset=utf-8"
 	default:
-		http.Error(w, `format must be "kmz" or "kml"`, http.StatusBadRequest)
+		http.Error(w, `format must be "kmz", "kml", or "csv"`, http.StatusBadRequest)
 		return
 	}
 	if err != nil {
