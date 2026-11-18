@@ -23,7 +23,7 @@ type rangeDef struct {
 var exportRanges = []rangeDef{
 	{
 		key:    "range_wayfarer",
-		label:  "Min POI spacing",
+		label:  "Min spacing campsite",
 		meters: 30,
 		color:  "#e74c3c",
 		types:  nil,
@@ -34,6 +34,13 @@ var exportRanges = []rangeDef{
 		meters: 40,
 		color:  "#e91e8c",
 		types:  map[poi.Type]bool{poi.TypePokeStop: true},
+	},
+	{
+		key:    "range_poi",
+		label:  "Min spacing events",
+		meters: 50,
+		color:  "#2ecc71",
+		types:  nil,
 	},
 	{
 		key:    "range_interaction",

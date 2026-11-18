@@ -26,6 +26,7 @@ export type LayerTypeKey =
   | "drawn_route"
   | "range_wayfarer"
   | "range_lure"
+  | "range_poi"
   | "range_interaction";
 
 export interface ExportLayer {
@@ -63,6 +64,7 @@ export const CAMPSITE_LAYER_TYPES: LayerTypeKey[] = [
 export const RANGE_LAYER_TYPES: LayerTypeKey[] = [
   "range_wayfarer",
   "range_lure",
+  "range_poi",
   "range_interaction",
 ];
 
@@ -83,8 +85,9 @@ export const LAYER_TYPE_LABELS: Record<LayerTypeKey, string> = {
   campsite_powerspot: "Campsite Powerspots",
   outline: "Areas",
   drawn_route: "Campsite Routes",
-  range_wayfarer: "Range · Min POI spacing (30 m)",
+  range_wayfarer: "Range · Min spacing campsite (30 m)",
   range_lure: "Range · Lure (40 m)",
+  range_poi: "Range · Min spacing events (50 m)",
   range_interaction: "Range · Interaction (80 m)",
 };
 
@@ -98,6 +101,8 @@ export function rangeOverlayIdForLayerType(t: LayerTypeKey): RadiusOverlayId | n
       return "wayfarer";
     case "range_lure":
       return "lure";
+    case "range_poi":
+      return "poi";
     case "range_interaction":
       return "interaction";
     default:
@@ -391,6 +396,7 @@ export function campsiteLayerTypeIncluded(key: LayerTypeKey, includeTypes: Recor
       return true;
     case "range_lure":
       return !!includeTypes.pokestop;
+    case "range_poi":
     case "range_interaction":
       return !!(
         includeTypes.gym ||

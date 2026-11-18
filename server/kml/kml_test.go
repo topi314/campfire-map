@@ -55,7 +55,7 @@ func TestBuildKMZ(t *testing.T) {
 	for _, needle := range []string{
 		"Existing", "Campsite", "Ranges",
 		"Gym One", "Mega Gate", "Loop", "Planned Stop", "Play Area", "Staging",
-		"Min POI spacing",
+		"· Min spacing campsite (30m)",
 		"<LineString>", "<Point>", "<Polygon>", "#super_mega_gym", "files/gym.png",
 		`#campsite_pokestop`, `files/campsite_pokestop.png`,
 		"route-line", `#poly-5B8CFF-3000-64`, `#poly-E85D4C-3000-64`, `#range_wayfarer`,
@@ -65,7 +65,7 @@ func TestBuildKMZ(t *testing.T) {
 		`<StyleMap id="poly-E85D4C-3000-64"`,
 		`<width>4.5</width>`, // My Maps poly highlight width
 		`<Data name="Type">`, "<value>Gym</value>", "<value>Campsite PokéStop</value>",
-		"<value>Min POI spacing</value>", "<value>Play Area</value>", "<value>Staging</value>",
+		"<value>Min spacing campsite</value>", "<value>Play Area</value>", "<value>Staging</value>",
 	} {
 		if !strings.Contains(kmlDoc, needle) {
 			t.Errorf("kml missing %q", needle)
