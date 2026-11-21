@@ -14,19 +14,21 @@ import (
 )
 
 type Server struct {
-	cfg      Config
-	client   *campfire.Client
-	wayfarer *wayfarer.Client
-	cache    *cache.Cache
-	http     *http.Server
+	cfg            Config
+	client         *campfire.Client
+	wayfarer       *wayfarer.Client
+	cache          *cache.Cache
+	powerspotCache *cache.Cache
+	http           *http.Server
 }
 
 func New(cfg Config) (*Server, error) {
 	s := &Server{
-		cfg:      cfg,
-		client:   campfire.New(cfg.Campfire),
-		wayfarer: wayfarer.New(cfg.Wayfarer),
-		cache:    cache.New(cfg.Cache.TTL),
+		cfg:            cfg,
+		client:         campfire.New(cfg.Campfire),
+		wayfarer:       wayfarer.New(cfg.Wayfarer),
+		cache:          cache.New(cfg.Cache.TTL),
+		powerspotCache: cache.New(cfg.Cache.PowerspotTTL),
 	}
 	handler, err := s.Handler()
 	if err != nil {

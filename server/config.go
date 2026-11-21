@@ -52,7 +52,8 @@ func defaultConfig() Config {
 			MaxRetries: 3,
 		},
 		Cache: CacheConfig{
-			TTL: 24 * time.Hour,
+			TTL:          24 * time.Hour,
+			PowerspotTTL: time.Hour,
 		},
 		Limits: LimitsConfig{
 			MaxCells:      192,
@@ -118,11 +119,12 @@ func (c ServerConfig) String() string {
 }
 
 type CacheConfig struct {
-	TTL time.Duration `toml:"ttl"`
+	TTL          time.Duration `toml:"ttl"`
+	PowerspotTTL time.Duration `toml:"powerspot_ttl"`
 }
 
 func (c CacheConfig) String() string {
-	return fmt.Sprintf("\n TTL: %s", c.TTL)
+	return fmt.Sprintf("\n TTL: %s\n PowerspotTTL: %s", c.TTL, c.PowerspotTTL)
 }
 
 type LimitsConfig struct {

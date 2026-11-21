@@ -22,7 +22,9 @@ url = "https://wayfarer.scopely.com/api/v1/vault/mapview/gcs"
 max_retries = 3
 
 [cache]
+# Gyms, stops, and routes. Powerspots are not permanent, so they expire sooner.
 ttl = "24h"
+powerspot_ttl = "1h"
 
 [limits]
 max_cells = 192

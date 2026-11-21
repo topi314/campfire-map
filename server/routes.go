@@ -168,7 +168,7 @@ func (s *Server) loadCampfirePOIs(r *http.Request, sharedKey string, cellIDs []s
 
 func (s *Server) fetchWayfarerPowerspots(r *http.Request, bbox poi.BBox, creds wayfarer.Creds) ([]poi.POI, error) {
 	sharedKey := fmt.Sprintf("wayfarer:%g,%g,%g,%g", bbox.MinLat, bbox.MinLng, bbox.MaxLat, bbox.MaxLng)
-	if raw, ok := s.cache.Get(sharedKey); ok {
+	if raw, ok := s.powerspotCache.Get(sharedKey); ok {
 		var pois []poi.POI
 		if err := json.Unmarshal(raw, &pois); err == nil {
 			return pois, nil
@@ -176,8 +176,8 @@ func (s *Server) fetchWayfarerPowerspots(r *http.Request, bbox poi.BBox, creds w
 	}
 
 	flightKey := sharedKey + ":cred:" + shortHash(creds.Session+"\n"+creds.XSRF)
-	raw, err := s.cache.GetOrLoad(flightKey, func() ([]byte, error) {
-		if raw, ok := s.cache.Get(sharedKey); ok {
+	raw, err := s.powerspotCache.GetOrLoad(flightKey, func() ([]byte, error) {
+		if raw, ok := s.powerspotCache.Get(sharedKey); ok {
 			return raw, nil
 		}
 		pois, err := s.wayfarer.FetchPowerspots(r.Context(), bbox, creds)
@@ -188,7 +188,7 @@ func (s *Server) fetchWayfarerPowerspots(r *http.Request, bbox poi.BBox, creds w
 		if err != nil {
 			return nil, err
 		}
-		s.cache.Set(sharedKey, raw)
+		s.powerspotCache.Set(sharedKey, raw)
 		return raw, nil
 	})
 	if err != nil {

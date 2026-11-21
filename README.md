@@ -2,7 +2,7 @@
 
 Go proxy + Nuxt/Leaflet map viewer for Pokémon GO POIs. Pan the map to load gyms, stops, powerspots, and routes for the current view; filter layers; optionally export a Google My Maps–ready KMZ/KML.
 
-The browser never talks to Niantic. The backend fetches S2 tiles from `https://niantic-social-api.nianticlabs.com/graphql`, caches them for 24 hours, and returns a normalized POI list.
+The browser never talks to Niantic. The backend fetches S2 tiles from `https://niantic-social-api.nianticlabs.com/graphql`, caches gyms, stops, and routes for 24 hours, caches Wayfarer powerspots for 1 hour, and returns a normalized POI list.
 
 In production the Nuxt SPA is built into the Go binary (`embed`) and served from the same process — one Docker image.
 
